@@ -1,6 +1,7 @@
 "use client"
 import { MapPin, Calendar, Users } from "lucide-react"
 import { useState } from "react"
+import LocationAutocomplete from "./LocationAutocomplete"
 
 export default function TravelForm() {
   const [formData, setFormData] = useState({
@@ -30,24 +31,19 @@ export default function TravelForm() {
             What do you want to explore?
           </label>
           <div className="space-y-3">
-            <div className="flex items-center gap-3 bg-gray-100 rounded-lg px-4 py-3">
-              <MapPin className="w-5 h-5 text-gray-600" />
-              <div className="flex-1">
-                <p className="text-xs text-gray-600">Departing from</p>
-                <p className="font-semibold text-gray-900">{formData.departure}</p>
-              </div>
-            </div>
+            <LocationAutocomplete
+              value={formData.departure}
+              onChange={(value) => setFormData({ ...formData, departure: value })}
+              placeholder="Departing from..."
+              region="northeast"
+            />
 
-            <div className="flex items-center gap-3 border-2 border-emerald-200 rounded-lg px-4 py-3 focus-within:border-emerald-500 transition-colors">
-              <MapPin className="w-5 h-5 text-emerald-500" />
-              <input
-                type="text"
-                placeholder="Search destination..."
-                value={formData.destination}
-                onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
-                className="flex-1 bg-transparent outline-none text-gray-900 placeholder-gray-500"
-              />
-            </div>
+            <LocationAutocomplete
+              value={formData.destination}
+              onChange={(value) => setFormData({ ...formData, destination: value })}
+              placeholder="Search destination..."
+              region="northeast"
+            />
           </div>
         </div>
 

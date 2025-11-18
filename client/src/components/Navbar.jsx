@@ -1,11 +1,14 @@
 "use client"
 import { Search, LogOut, User, Settings } from "lucide-react"
 import { useState, useRef, useEffect } from "react"
+import LocationAutocomplete from "./LocationAutocomplete"
 
 export default function Navbar() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [isScrolled, setIsScrolled] = useState(false)
+  const [isHovered, setIsHovered] = useState(false)
   const dropdownRef = useRef(null)
 
   useEffect(() => {
@@ -15,8 +18,16 @@ export default function Navbar() {
       }
     }
 
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 50)
+    }
+
     document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
+    window.addEventListener("scroll", handleScroll)
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+      window.removeEventListener("scroll", handleScroll)
+    }
   }, [])
 
   const handleLogin = () => {
@@ -35,33 +46,35 @@ export default function Navbar() {
   }
 
   return (
-    <nav className="sticky top-0 z-50 bg-white shadow-md">
+    <nav 
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+        isScrolled || isHovered ? "bg-black/90 shadow-lg" : "bg-transparent"
+      }`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <div className="container mx-auto px-4 py-4">
         <div className="flex items-center justify-between gap-6">
           {/* Logo */}
           <div className="flex-shrink-0">
-            <h1 className="text-2xl font-bold text-emerald-600">Seven Sisters</h1>
+            <h1 className="text-2xl font-bold text-white drop-shadow-lg">Seven Sisters</h1>
           </div>
 
           {/* Search Bar */}
-          <form onSubmit={handleSearch} className="flex-1 max-w-md">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Search destinations..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-gray-100 border border-gray-300 rounded-lg px-4 py-2 pl-10 focus:outline-none focus:border-emerald-500 focus:bg-white transition-colors"
-              />
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            </div>
-          </form>
+          <div className="flex-1 max-w-md">
+            <LocationAutocomplete
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search destinations..."
+              region="northeast"
+            />
+          </div>
 
           {/* Profile Section */}
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="w-10 h-10 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center transition-all duration-200 hover:shadow-lg"
+              className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition-all duration-200 hover:shadow-lg backdrop-blur-sm"
             >
               <User className="w-6 h-6" />
             </button>
