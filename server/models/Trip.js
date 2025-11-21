@@ -105,6 +105,46 @@ const tripSchema = new mongoose.Schema({
     }
   }],
   
+  // Enriched data from external APIs
+  enrichedData: {
+    images: [{
+      url: String,
+      thumbnail: String,
+      photographer: String,
+      description: String
+    }],
+    destinationInfo: {
+      title: String,
+      description: String,
+      image: String,
+      url: String,
+      coordinates: {
+        lat: Number,
+        lon: Number
+      }
+    },
+    weather: {
+      city: String,
+      country: String,
+      current: {
+        temp: Number,
+        feels_like: Number,
+        description: String,
+        icon: String,
+        humidity: Number,
+        wind_speed: Number
+      },
+      daily: [{
+        date: String,
+        temp: Number,
+        temp_min: Number,
+        temp_max: Number,
+        description: String,
+        icon: String
+      }]
+    }
+  },
+  
   // Status
   status: {
     type: String,

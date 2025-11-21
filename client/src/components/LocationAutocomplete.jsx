@@ -1,62 +1,32 @@
 import { MapPin } from "lucide-react"
 import { useState, useRef, useEffect } from "react"
+import usePlacesAutocomplete from "use-places-autocomplete"
 
-export default function LocationAutocomplete({ value, onChange, placeholder = "Search location...", region = "northeast" }) {
-  const [suggestions, setSuggestions] = useState([])
+export default function LocationAutocomplete({ value, onChange, placeholder = "Search location..." }) {
   const [isOpen, setIsOpen] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
   const suggestionsRef = useRef(null)
   const inputRef = useRef(null)
 
-  const MAPBOX_API_KEY = import.meta.env.VITE_MAPBOX_API_KEY
+  const {
+    ready,
+    value: inputValue,
+    suggestions: { status, data },
+    setValue,
+    clearSuggestions,
+  } = usePlacesAutocomplete({
+    requestOptions: {
+      /* Define search scope here if needed */
+    },
+    debounce: 300,
+    defaultValue: value,
+  })
 
-  // North Eastern states bounding box (approximate)
-  // Covers: Assam, Meghalaya, Tripura, Mizoram, Manipur, Nagaland, Arunachal Pradesh, Sikkim
-  const NORTHEAST_BBOX = "88.0,21.5,97.5,29.5"
-
-  // Fetch suggestions from Mapbox Geocoding API
-  const fetchSuggestions = async (query) => {
-    if (!query.trim() || query.length < 2) {
-      setSuggestions([])
-      return
-    }
-
-    setIsLoading(true)
-    try {
-      const bbox = region === "northeast" ? `&bbox=${NORTHEAST_BBOX}` : ""
-      const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_API_KEY}&country=IN${bbox}&limit=5`
-      )
-      const data = await response.json()
-
-      if (data.features) {
-        const formatted = data.features.map((feature) => ({
-          id: feature.id,
-          name: feature.place_name,
-          coordinates: feature.geometry.coordinates,
-          context: feature.context,
-        }))
-        setSuggestions(formatted)
-        setIsOpen(true)
-      }
-    } catch (error) {
-      console.error("Error fetching suggestions:", error)
-      setSuggestions([])
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // Debounce the API calls
+  // Sync prop value with hook value
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (value) {
-        fetchSuggestions(value)
-      }
-    }, 300)
-
-    return () => clearTimeout(timer)
-  }, [value])
+    if (value !== inputValue) {
+      setValue(value, false)
+    }
+  }, [value, setValue, inputValue])
 
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -70,10 +40,17 @@ export default function LocationAutocomplete({ value, onChange, placeholder = "S
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  const handleSelect = (suggestion) => {
-    onChange(suggestion.name)
+  const handleInput = (e) => {
+    setValue(e.target.value)
+    onChange(e.target.value)
+    if (e.target.value) setIsOpen(true)
+  }
+
+  const handleSelect = ({ description }) => {
+    setValue(description, false)
+    clearSuggestions()
+    onChange(description)
     setIsOpen(false)
-    setSuggestions([])
   }
 
   return (
@@ -84,31 +61,32 @@ export default function LocationAutocomplete({ value, onChange, placeholder = "S
           ref={inputRef}
           type="text"
           placeholder={placeholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onFocus={() => value && suggestions.length > 0 && setIsOpen(true)}
-          className="flex-1 bg-transparent outline-none text-gray-900 placeholder-gray-500"
+          value={inputValue}
+          onChange={handleInput}
+          onFocus={() => inputValue && data.length > 0 && setIsOpen(true)}
+          disabled={!ready}
+          className="flex-1 bg-transparent outline-none text-gray-900 placeholder-gray-500 disabled:opacity-50"
           autoComplete="off"
         />
-        {isLoading && <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />}
+        {!ready && <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />}
       </div>
 
       {/* Suggestions Dropdown */}
-      {isOpen && suggestions.length > 0 && (
+      {isOpen && status === "OK" && (
         <div
           ref={suggestionsRef}
           className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto"
         >
-          {suggestions.map((suggestion) => (
+          {data.map((suggestion) => (
             <button
-              key={suggestion.id}
+              key={suggestion.place_id}
               onClick={() => handleSelect(suggestion)}
               className="w-full text-left px-4 py-3 hover:bg-emerald-50 transition-colors border-b border-gray-100 last:border-b-0"
             >
               <div className="flex items-start gap-2">
                 <MapPin className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 truncate">{suggestion.name}</p>
+                  <p className="font-medium text-gray-900 truncate">{suggestion.description}</p>
                 </div>
               </div>
             </button>
@@ -116,7 +94,7 @@ export default function LocationAutocomplete({ value, onChange, placeholder = "S
         </div>
       )}
 
-      {isOpen && !isLoading && suggestions.length === 0 && value.length >= 2 && (
+      {isOpen && status === "ZERO_RESULTS" && inputValue.length >= 2 && (
         <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-50 p-4 text-center text-gray-500">
           No locations found
         </div>

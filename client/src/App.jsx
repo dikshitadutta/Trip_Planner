@@ -7,6 +7,7 @@ import Destinations from "./components/Destinations"
 import CTA from "./components/CTA"
 import Footer from "./components/Footer"
 import Dashboard from "./pages/Dashboard"
+import AuthSuccess from "./pages/AuthSuccess"
 
 function HomePage() {
   return (
@@ -30,6 +31,7 @@ function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/auth-success" element={<AuthSuccess />} />
       </Routes>
     </BrowserRouter>
   )

@@ -1,19 +1,44 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import twilio from 'twilio';
+import session from 'express-session';
+import MongoStore from 'connect-mongo';
+import passport, { configurePassport } from './config/passport.js';
 import mongoose from 'mongoose';
 import User from './models/User.js';
 import Trip from './models/Trip.js';
 import { generateItinerary, generateRecommendations } from './services/itineraryGenerator.js';
+import { generateAIItinerary } from './services/aiItineraryGenerator.js';
+import { enrichDestinationData } from './services/externalAPIs.js';
 
 dotenv.config();
+
+// Configure passport AFTER dotenv loads
+configurePassport();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true
+}));
 app.use(express.json());
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your-secret-key-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: process.env.MONGODB_URI || 'mongodb://localhost:27017/trip_planner',
+    touchAfter: 24 * 3600 // lazy session update
+  }),
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+app.use(passport.initialize());
+app.use(passport.session());
 
 // MongoDB Connection
 const connectDB = async () => {
@@ -28,230 +53,65 @@ const connectDB = async () => {
 
 connectDB();
 
-// In-memory storage for OTPs (use Redis in production)
-const otpStore = new Map();
-
-// Generate 6-digit OTP
-const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-// Initialize Twilio client
-let twilioClient = null;
-console.log('🔍 Checking Twilio credentials...');
-console.log('Account SID:', process.env.TWILIO_ACCOUNT_SID ? 'Found' : 'Missing');
-console.log('Auth Token:', process.env.TWILIO_AUTH_TOKEN ? 'Found' : 'Missing');
-console.log('Phone Number:', process.env.TWILIO_PHONE_NUMBER || 'Missing');
-
-if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-  try {
-    twilioClient = twilio(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN
-    );
-    console.log('✅ Twilio client initialized successfully');
-  } catch (error) {
-    console.error('❌ Twilio initialization error:', error.message);
-  }
-} else {
-  console.log('⚠️  Twilio credentials not found in environment variables');
-}
-
-// Send SMS using Twilio
-const sendSMS = async (phone, otp) => {
-  if (!twilioClient) {
-    console.log('⚠️  Twilio not configured');
-    console.log('📱 OTP (use this to login):', otp);
-    return { success: false, message: 'SMS service not configured' };
-  }
-
-  try {
-    console.log('📤 Sending SMS via Twilio to:', phone);
-    const message = `Your Seven Sisters trip planner OTP is: ${otp}. Valid for 5 minutes.`;
-    
-    const result = await twilioClient.messages.create({
-      body: message,
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: `+91${phone}` // Add India country code
-    });
-
-    console.log('✅ SMS sent successfully! Message SID:', result.sid);
-    return { success: true, message: 'SMS sent successfully' };
-  } catch (error) {
-    console.error('❌ Twilio Error:', error.message);
-    
-    // Common Twilio errors
-    if (error.code === 21608) {
-      console.log('⚠️  Phone number not verified in Twilio trial account');
-      console.log('📱 Add this number to verified caller IDs in Twilio console');
-    }
-    
-    return { success: false, message: 'SMS service error' };
-  }
-};
+console.log('\n🔍 Checking API credentials...');
+console.log('Google OAuth Client ID:', process.env.GOOGLE_CLIENT_ID ? '✅ Found' : '❌ Missing');
+console.log('Google OAuth Client Secret:', process.env.GOOGLE_CLIENT_SECRET ? '✅ Found' : '❌ Missing');
+console.log('Gemini API Key:', process.env.GEMINI_API_KEY ? '✅ Found' : '❌ Missing');
+console.log('Google Maps API Key:', process.env.GOOGLE_MAPS_API_KEY ? '✅ Found' : '❌ Missing');
+console.log('AI Itinerary Generation:', (process.env.GEMINI_API_KEY && process.env.GOOGLE_MAPS_API_KEY) ? '✅ ENABLED' : '⚠️  DISABLED (using templates)\n');
 
 app.get('/', (req, res) => {
-  res.json({ message: 'Trip Planner API' });
+  res.json({ message: 'Trip Planner API with Google OAuth' });
 });
 
-// Send OTP endpoint
-app.post('/api/auth/send-otp', async (req, res) => {
-  try {
-    const { phone } = req.body;
+// Google OAuth routes
+app.get('/api/auth/google',
+  passport.authenticate('google', { scope: ['profile', 'email'] })
+);
 
-    if (!phone || !/^[0-9]{10}$/.test(phone)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid phone number. Please provide a 10-digit number.' 
-      });
-    }
+app.get('/api/auth/google/callback',
+  passport.authenticate('google', { failureRedirect: 'http://localhost:5173' }),
+  (req, res) => {
+    // Successful authentication - redirect back to home page with minimal user data
+    const userData = {
+      _id: req.user._id.toString(),
+      id: req.user._id.toString(),
+      email: req.user.email,
+      name: req.user.name,
+      avatar: req.user.avatar
+    };
+    console.log('Redirecting with user data:', userData);
+    res.redirect(`http://localhost:5173/auth-success?user=${encodeURIComponent(JSON.stringify(userData))}`);
+  }
+);
 
-    const otp = generateOTP();
-    const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
-
-    // Store OTP with expiration
-    otpStore.set(phone, { otp, expiresAt, attempts: 0 });
-
-    // Send SMS
-    const smsResult = await sendSMS(phone, otp);
-    
-    // Always log to console in development
-    console.log(`\n🔐 OTP GENERATED for ${phone}: ${otp}`);
-    console.log(`⏰ Expires at: ${new Date(expiresAt).toLocaleTimeString()}\n`);
-
-    res.json({ 
-      success: true, 
-      message: smsResult.success ? 'OTP sent to your phone' : 'OTP generated (check console)',
-      // Show OTP in development mode if SMS fails
-      otp: (process.env.NODE_ENV === 'development' || !smsResult.success) ? otp : undefined
-    });
-  } catch (error) {
-    console.error('Error sending OTP:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to send OTP. Please try again.' 
-    });
+// Get current user
+app.get('/api/auth/user', (req, res) => {
+  if (req.isAuthenticated()) {
+    res.json({ success: true, user: req.user });
+  } else {
+    res.status(401).json({ success: false, message: 'Not authenticated' });
   }
 });
 
-// Verify OTP endpoint
-app.post('/api/auth/verify-otp', async (req, res) => {
-  try {
-    const { phone, otp, name } = req.body;
-
-    console.log(`\n🔍 Verifying OTP for ${phone}`);
-    console.log(`📥 Received OTP: ${otp}`);
-
-    if (!phone || !otp) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Phone number and OTP are required.' 
-      });
+// Logout
+app.post('/api/auth/logout', (req, res) => {
+  req.logout((err) => {
+    if (err) {
+      return res.status(500).json({ success: false, message: 'Logout failed' });
     }
-
-    const storedData = otpStore.get(phone);
-
-    if (!storedData) {
-      console.log('❌ No OTP found in store for this phone');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'OTP not found. Please request a new OTP.' 
-      });
-    }
-
-    console.log(`💾 Stored OTP: ${storedData.otp}`);
-    console.log(`⏰ Expires: ${new Date(storedData.expiresAt).toLocaleTimeString()}`);
-    console.log(`🔢 Attempts: ${storedData.attempts}/3`);
-
-    // Check expiration
-    if (Date.now() > storedData.expiresAt) {
-      otpStore.delete(phone);
-      console.log('❌ OTP expired');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'OTP has expired. Please request a new OTP.' 
-      });
-    }
-
-    // Check attempts
-    if (storedData.attempts >= 3) {
-      otpStore.delete(phone);
-      console.log('❌ Too many attempts');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Too many failed attempts. Please request a new OTP.' 
-      });
-    }
-
-    // Verify OTP - compare as strings
-    const receivedOTP = String(otp).trim();
-    const storedOTP = String(storedData.otp).trim();
-    
-    console.log(`🔐 Comparing: "${receivedOTP}" === "${storedOTP}"`);
-
-    if (receivedOTP !== storedOTP) {
-      storedData.attempts += 1;
-      otpStore.set(phone, storedData);
-      console.log(`❌ OTP mismatch. Attempts: ${storedData.attempts}/3`);
-      return res.status(400).json({ 
-        success: false, 
-        message: `Invalid OTP. ${3 - storedData.attempts} attempts remaining.` 
-      });
-    }
-
-    // OTP verified successfully
-    otpStore.delete(phone);
-
-    // Create or update user in database
-    let user = await User.findOne({ phone });
-    
-    if (user) {
-      // Existing user - update last login and name if provided
-      user.lastLogin = new Date();
-      if (name) user.name = name;
-      await user.save();
-      console.log(`User logged in: ${phone}`);
-    } else {
-      // New user - create account
-      user = new User({
-        phone,
-        name: name || 'User'
-      });
-      await user.save();
-      console.log(`New user created: ${phone}`);
-    }
-
-    // Create session token (in production, use JWT)
-    const token = `session_${phone}_${Date.now()}`;
-
-    res.json({ 
-      success: true, 
-      message: user.createdAt.getTime() === user.lastLogin.getTime() ? 'Account created successfully!' : 'Welcome back!',
-      token,
-      user: {
-        id: user._id,
-        phone: user.phone,
-        name: user.name,
-        isNewUser: user.createdAt.getTime() === user.lastLogin.getTime()
-      }
-    });
-  } catch (error) {
-    console.error('Error verifying OTP:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to verify OTP. Please try again.' 
-    });
-  }
+    res.json({ success: true, message: 'Logged out successfully' });
+  });
 });
 
 // Create trip with generated itinerary
 app.post('/api/trips/create', async (req, res) => {
   try {
     const tripData = req.body;
-    
+
     console.log('\n🗺️  Received trip data:', JSON.stringify(tripData, null, 2));
     console.log('Generating itinerary for:', tripData.destination);
-    
+
     // Validate required fields
     if (!tripData.userId) {
       return res.status(400).json({
@@ -259,22 +119,32 @@ app.post('/api/trips/create', async (req, res) => {
         message: 'User ID is required'
       });
     }
-    
+
     if (!tripData.startDate || !tripData.endDate) {
       return res.status(400).json({
         success: false,
         message: 'Start and end dates are required'
       });
     }
-    
-    // Generate itinerary and recommendations
-    console.log('📝 Generating itinerary...');
-    const { itinerary, budget, duration } = generateItinerary(tripData);
+
+    // Generate itinerary using AI (with fallback to template)
+    console.log('🤖 Generating AI-powered itinerary...');
+    const useAI = process.env.GEMINI_API_KEY && process.env.GOOGLE_MAPS_API_KEY;
+
+    const { itinerary, budget, duration } = useAI
+      ? await generateAIItinerary(tripData)
+      : generateItinerary(tripData);
+
     console.log(`✅ Generated ${duration}-day itinerary with ${itinerary.length} days`);
-    
+
     console.log('🎯 Generating recommendations...');
     const recommendations = generateRecommendations(tripData);
-    
+
+    // Enrich with external API data
+    console.log('🌍 Fetching destination data from external APIs...');
+    const enrichedData = await enrichDestinationData(tripData.destination);
+    console.log(`✅ Enriched data: ${enrichedData.images.length} images, weather: ${enrichedData.weather?.current.temp}°C`);
+
     // Create trip in database
     console.log('💾 Saving to database...');
     const trip = new Trip({
@@ -292,14 +162,19 @@ app.post('/api/trips/create', async (req, res) => {
       itinerary,
       budget,
       recommendations,
+      enrichedData: {
+        images: enrichedData.images,
+        destinationInfo: enrichedData.info,
+        weather: enrichedData.weather
+      },
       status: 'draft'
     });
-    
+
     await trip.save();
-    
+
     console.log('✅ Trip created successfully:', trip._id);
     console.log(`💰 Total budget: ₹${budget.total}\n`);
-    
+
     res.json({
       success: true,
       message: 'Itinerary generated successfully!',
@@ -327,7 +202,7 @@ app.get('/api/trips/user/:userId', async (req, res) => {
   try {
     const trips = await Trip.find({ userId: req.params.userId })
       .sort({ createdAt: -1 });
-    
+
     res.json({
       success: true,
       trips
@@ -347,14 +222,14 @@ app.get('/api/trips/:tripId', async (req, res) => {
     const trip = await Trip.findById(req.params.tripId)
       .populate('userId', 'name phone')
       .populate('collaborators.userId', 'name phone');
-    
+
     if (!trip) {
       return res.status(404).json({
         success: false,
         message: 'Trip not found'
       });
     }
-    
+
     res.json({
       success: true,
       trip
@@ -376,7 +251,7 @@ app.put('/api/trips/:tripId', async (req, res) => {
       req.body,
       { new: true }
     );
-    
+
     res.json({
       success: true,
       message: 'Trip updated successfully',
@@ -390,16 +265,6 @@ app.put('/api/trips/:tripId', async (req, res) => {
     });
   }
 });
-
-// Clean up expired OTPs every minute
-setInterval(() => {
-  const now = Date.now();
-  for (const [phone, data] of otpStore.entries()) {
-    if (now > data.expiresAt) {
-      otpStore.delete(phone);
-    }
-  }
-}, 60000);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

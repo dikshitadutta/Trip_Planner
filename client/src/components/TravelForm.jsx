@@ -1,7 +1,11 @@
 "use client"
-import { Calendar, Users, UserCircle2, Hotel, IndianRupee, ChevronLeft } from "lucide-react"
-import { useState } from "react"
+import { Calendar, Users, UserCircle2, Hotel, ChevronLeft } from "lucide-react"
+import { useState, useEffect, useCallback } from "react"
 import LocationAutocomplete from "./LocationAutocomplete"
+import GoogleAuth from "./GoogleAuth"
+import { useLoadScript } from "@react-google-maps/api"
+
+const libraries = ["places"]
 
 export default function TravelForm() {
   const [step, setStep] = useState(1)
@@ -19,136 +23,124 @@ export default function TravelForm() {
     phone: "",
     otp: ""
   })
-  const [otpSent, setOtpSent] = useState(false)
-  const [otpLoading, setOtpLoading] = useState(false)
-  const [verifyLoading, setVerifyLoading] = useState(false)
-  const [otpError, setOtpError] = useState("")
-  const [otpSuccess, setOtpSuccess] = useState("")
-  const [countdown, setCountdown] = useState(0)
+  const [authError, setAuthError] = useState("")
+  const [isCreatingTrip, setIsCreatingTrip] = useState(false)
+
+  const { isLoaded } = useLoadScript({
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+    libraries,
+  })
 
   const API_URL = "http://localhost:3001"
 
-  const handleSendOTP = async () => {
-    if (!formData.phone || !/^[0-9]{10}$/.test(formData.phone)) {
-      setOtpError("Please enter a valid 10-digit phone number")
-      return
-    }
-
-    setOtpLoading(true)
-    setOtpError("")
-    setOtpSuccess("")
+  const handleGoogleAuthSuccess = useCallback(async (user, savedFormData) => {
+    setIsCreatingTrip(true)
+    setAuthError("")
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/send-otp`, {
+      console.log('Creating trip with user:', user);
+      console.log('Form data:', savedFormData);
+
+      // Create trip with generated itinerary
+      const tripResponse = await fetch(`${API_URL}/api/trips/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: formData.phone })
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        setOtpSent(true)
-        setOtpSuccess("OTP sent successfully!")
-        setCountdown(60)
-        
-        // Development only - show OTP in console
-        if (data.otp) {
-          console.log("Development OTP:", data.otp)
-          alert(`Development Mode - OTP: ${data.otp}`)
-        }
-
-        // Start countdown
-        const timer = setInterval(() => {
-          setCountdown((prev) => {
-            if (prev <= 1) {
-              clearInterval(timer)
-              return 0
-            }
-            return prev - 1
-          })
-        }, 1000)
-      } else {
-        setOtpError(data.message || "Failed to send OTP")
-      }
-    } catch (error) {
-      setOtpError("Network error. Please check if the server is running.")
-      console.error("OTP Error:", error)
-    } finally {
-      setOtpLoading(false)
-    }
-  }
-
-  const handleVerifyOTP = async (e) => {
-    e.preventDefault()
-    
-    if (!formData.otp || formData.otp.length !== 6) {
-      setOtpError("Please enter a valid 6-digit OTP")
-      return
-    }
-
-    if (!formData.name) {
-      setOtpError("Please enter your name")
-      return
-    }
-
-    setVerifyLoading(true)
-    setOtpError("")
-
-    try {
-      const response = await fetch(`${API_URL}/api/auth/verify-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          phone: formData.phone, 
-          otp: formData.otp,
-          name: formData.name
+        body: JSON.stringify({
+          userId: user._id || user.id,
+          ...savedFormData
         })
       })
 
-      const data = await response.json()
+      const tripData = await tripResponse.json()
 
-      if (data.success) {
-        setOtpSuccess("Verification successful! Generating your itinerary...")
-        console.log("User authenticated:", data.user)
-        
-        // Create trip with generated itinerary
-        const tripResponse = await fetch(`${API_URL}/api/trips/create`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userId: data.user.id,
-            ...formData
-          })
-        })
-        
-        const tripData = await tripResponse.json()
-        
-        if (tripData.success) {
-          console.log("Trip created:", tripData.trip)
-          // Store trip ID in localStorage
-          localStorage.setItem('currentTripId', tripData.trip.id)
-          localStorage.setItem('user', JSON.stringify(data.user))
-          
-          // Navigate to dashboard (we'll create this next)
-          alert(`🎉 Your ${tripData.trip.duration}-day itinerary is ready!\n\nBudget: ₹${tripData.trip.budget.total.toLocaleString()}\n\nRedirecting to dashboard...`)
-          window.location.href = '/dashboard'
-        } else {
-          setOtpError("Failed to generate itinerary")
-        }
+      if (tripData.success) {
+        console.log("Trip created:", tripData.trip)
+        // Store trip ID in localStorage
+        localStorage.setItem('currentTripId', tripData.trip.id)
+        localStorage.setItem('user', JSON.stringify(user))
+
+        // Navigate to dashboard
+        alert(`🎉 Your ${tripData.trip.duration}-day itinerary is ready!\n\nBudget: ₹${tripData.trip.budget.total.toLocaleString()}\n\nRedirecting to dashboard...`)
+        window.location.href = '/dashboard'
       } else {
-        setOtpError(data.message || "Invalid OTP")
+        console.error('Trip creation failed:', tripData);
+        setAuthError(tripData.message || "Failed to generate itinerary")
       }
     } catch (error) {
-      setOtpError("Network error. Please try again.")
-      console.error("Verify Error:", error)
+      setAuthError("Network error. Please try again.")
+      console.error("Trip creation error:", error)
     } finally {
-      setVerifyLoading(false)
+      setIsCreatingTrip(false)
     }
-  }
+  }, [API_URL]);
+
+  // Save form data before OAuth and restore after
+  useEffect(() => {
+    // Check if returning from OAuth
+    const params = new URLSearchParams(window.location.search);
+    const userParam = params.get('user');
+
+    if (userParam) {
+      try {
+        const user = JSON.parse(decodeURIComponent(userParam));
+        // Restore form data from sessionStorage
+        const savedFormData = sessionStorage.getItem('tripFormData');
+        const savedStep = sessionStorage.getItem('tripFormStep');
+
+        if (savedFormData) {
+          const parsedFormData = JSON.parse(savedFormData);
+          setFormData(parsedFormData);
+
+          // Trigger trip creation with saved form data
+          handleGoogleAuthSuccess(user, parsedFormData);
+        }
+        if (savedStep) {
+          setStep(parseInt(savedStep));
+        }
+
+        // Clean up
+        window.history.replaceState({}, document.title, window.location.pathname);
+        sessionStorage.removeItem('tripFormData');
+        sessionStorage.removeItem('tripFormStep');
+      } catch (error) {
+        console.error('Error handling OAuth return:', error);
+        setAuthError('Authentication failed. Please try again.');
+      }
+    }
+  }, [handleGoogleAuthSuccess]);
+
+  // Save form data when reaching step 4
+  useEffect(() => {
+    if (step === 4) {
+      sessionStorage.setItem('tripFormData', JSON.stringify(formData));
+      sessionStorage.setItem('tripFormStep', step.toString());
+    }
+  }, [step, formData]);
 
   const handleNext = (e) => {
     e.preventDefault()
+
+    // Validate step 1
+    if (step === 1) {
+      if (!formData.destination || !formData.startDate || !formData.endDate) {
+        setAuthError("Please fill in all required fields")
+        return
+      }
+      setAuthError("")
+    }
+
+    // Validate step 2
+    if (step === 2 && !formData.groupType) {
+      setAuthError("Please select a group type")
+      return
+    }
+
+    // Validate step 3
+    if (step === 3 && !formData.hotelPreference) {
+      setAuthError("Please select a hotel preference")
+      return
+    }
+
     if (step < 4) {
       setStep(step + 1)
     }
@@ -158,6 +150,14 @@ export default function TravelForm() {
     if (step > 1) {
       setStep(step - 1)
     }
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
+      </div>
+    )
   }
 
   return (
@@ -194,12 +194,18 @@ export default function TravelForm() {
         {[1, 2, 3, 4].map((s) => (
           <div
             key={s}
-            className={`h-2 flex-1 rounded-full transition-colors ${
-              s <= step ? "bg-emerald-500" : "bg-gray-200"
-            }`}
+            className={`h-2 flex-1 rounded-full transition-colors ${s <= step ? "bg-emerald-500" : "bg-gray-200"
+              }`}
           />
         ))}
       </div>
+
+      {/* Error Message for all steps */}
+      {authError && step < 4 && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          {authError}
+        </div>
+      )}
 
       <form onSubmit={handleNext} className="space-y-5">
         {/* Step 1: Trip Details */}
@@ -257,7 +263,7 @@ export default function TravelForm() {
               <label className="block text-sm font-semibold text-gray-800 mb-2">
                 Activity Preferences
               </label>
-              <select 
+              <select
                 value={formData.activityPreference}
                 onChange={(e) => setFormData({ ...formData, activityPreference: e.target.value })}
                 className="w-full border-2 border-gray-200 rounded-lg px-4 py-3 bg-white text-gray-900 focus:outline-none focus:border-emerald-500 transition-colors"
@@ -289,15 +295,13 @@ export default function TravelForm() {
                   key={type.value}
                   type="button"
                   onClick={() => setFormData({ ...formData, groupType: type.value })}
-                  className={`p-6 border-2 rounded-xl transition-all ${
-                    formData.groupType === type.value
+                  className={`p-6 border-2 rounded-xl transition-all ${formData.groupType === type.value
                       ? "border-emerald-500 bg-emerald-50"
                       : "border-gray-200 hover:border-emerald-300"
-                  }`}
+                    }`}
                 >
-                  <type.icon className={`w-12 h-12 mx-auto mb-3 ${
-                    formData.groupType === type.value ? "text-emerald-500" : "text-gray-400"
-                  }`} />
+                  <type.icon className={`w-12 h-12 mx-auto mb-3 ${formData.groupType === type.value ? "text-emerald-500" : "text-gray-400"
+                    }`} />
                   <h3 className="font-semibold text-gray-900 mb-1">{type.label}</h3>
                   <p className="text-sm text-gray-600">{type.desc}</p>
                 </button>
@@ -323,16 +327,14 @@ export default function TravelForm() {
                     key={pref.value}
                     type="button"
                     onClick={() => setFormData({ ...formData, hotelPreference: pref.value })}
-                    className={`w-full p-4 border-2 rounded-lg text-left transition-all ${
-                      formData.hotelPreference === pref.value
+                    className={`w-full p-4 border-2 rounded-lg text-left transition-all ${formData.hotelPreference === pref.value
                         ? "border-emerald-500 bg-emerald-50"
                         : "border-gray-200 hover:border-emerald-300"
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-3">
-                      <Hotel className={`w-6 h-6 ${
-                        formData.hotelPreference === pref.value ? "text-emerald-500" : "text-gray-400"
-                      }`} />
+                      <Hotel className={`w-6 h-6 ${formData.hotelPreference === pref.value ? "text-emerald-500" : "text-gray-400"
+                        }`} />
                       <div>
                         <h3 className="font-semibold text-gray-900">{pref.label}</h3>
                         <p className="text-sm text-gray-600">{pref.desc}</p>
@@ -357,11 +359,11 @@ export default function TravelForm() {
                     ₹{formData.hotelBudgetMax.toLocaleString()}
                   </span>
                 </div>
-                
+
                 <div className="relative pt-2 pb-6">
                   <div className="relative h-2 bg-gray-200 rounded-lg">
                     {/* Active range highlight */}
-                    <div 
+                    <div
                       className="absolute h-2 bg-emerald-500 rounded-lg"
                       style={{
                         left: `${((formData.hotelBudgetMin - 1000) / 14000) * 100}%`,
@@ -369,7 +371,7 @@ export default function TravelForm() {
                       }}
                     />
                   </div>
-                  
+
                   {/* Min slider */}
                   <input
                     type="range"
@@ -385,7 +387,7 @@ export default function TravelForm() {
                     }}
                     className="absolute w-full h-2 top-2 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-emerald-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-emerald-500 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md"
                   />
-                  
+
                   {/* Max slider */}
                   <input
                     type="range"
@@ -402,7 +404,7 @@ export default function TravelForm() {
                     className="absolute w-full h-2 top-2 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-emerald-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-emerald-500 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md"
                   />
                 </div>
-                
+
                 <div className="flex justify-between text-xs text-gray-500">
                   <span>₹1,000</span>
                   <span>₹15,000</span>
@@ -415,107 +417,34 @@ export default function TravelForm() {
         {/* Step 4: Login */}
         {step === 4 && (
           <div className="space-y-5">
-            {/* Success/Error Messages */}
-            {otpSuccess && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm">
-                {otpSuccess}
-              </div>
-            )}
-            {otpError && (
+            {/* Error Message */}
+            {authError && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {otpError}
+                {authError}
               </div>
             )}
 
-            <div>
-              <label className="block text-sm font-semibold text-gray-800 mb-2">
-                Full Name
-              </label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Enter your full name"
-                className="w-full border-2 border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-800 mb-2">
-                Phone Number
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => {
-                    setFormData({ ...formData, phone: e.target.value })
-                    setOtpError("")
-                  }}
-                  placeholder="Enter 10-digit mobile number"
-                  className="flex-1 border-2 border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
-                  pattern="[0-9]{10}"
-                  maxLength="10"
-                  disabled={otpSent}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={handleSendOTP}
-                  disabled={otpLoading || (countdown > 0)}
-                  className="px-6 py-3 bg-emerald-500 text-white font-semibold rounded-lg hover:bg-emerald-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed whitespace-nowrap"
-                >
-                  {otpLoading ? "Sending..." : countdown > 0 ? `${countdown}s` : otpSent ? "Resend" : "Send OTP"}
-                </button>
+            {isCreatingTrip ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto mb-4"></div>
+                <p className="text-gray-600">Creating your personalized itinerary...</p>
               </div>
-            </div>
-
-            {otpSent && (
-              <div>
-                <label className="block text-sm font-semibold text-gray-800 mb-2">
-                  Enter OTP
-                </label>
-                <input
-                  type="text"
-                  value={formData.otp}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, "")
-                    setFormData({ ...formData, otp: value })
-                    setOtpError("")
-                  }}
-                  placeholder="000000"
-                  className="w-full border-2 border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors text-center text-2xl tracking-widest"
-                  maxLength="6"
-                  pattern="[0-9]{6}"
-                />
-                <p className="text-xs text-gray-500 mt-2 text-center">
-                  Didn't receive OTP? {countdown > 0 ? (
-                    <span className="text-gray-400">Wait {countdown}s</span>
-                  ) : (
-                    <button 
-                      type="button" 
-                      onClick={handleSendOTP}
-                      className="text-emerald-600 font-semibold hover:underline"
-                    >
-                      Resend
-                    </button>
-                  )}
-                </p>
-              </div>
+            ) : (
+              <GoogleAuth />
             )}
           </div>
         )}
 
         {/* Continue Button */}
-        <button
-          type="submit"
-          onClick={step === 4 ? handleVerifyOTP : handleNext}
-          disabled={step === 4 && (!otpSent || verifyLoading)}
-          className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 px-6 rounded-lg transition-all duration-200 hover:shadow-lg hover:shadow-emerald-500/50 text-lg disabled:bg-gray-300 disabled:cursor-not-allowed"
-        >
-          {step === 4 ? (verifyLoading ? "Verifying..." : "Verify & Continue") : "Continue"}
-        </button>
+        {step < 4 && (
+          <button
+            type="submit"
+            onClick={handleNext}
+            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 px-6 rounded-lg transition-all duration-200 hover:shadow-lg hover:shadow-emerald-500/50 text-lg"
+          >
+            Continue
+          </button>
+        )}
       </form>
 
       <p className="text-center text-xs text-gray-600">Get your personalized itinerary in minutes</p>
