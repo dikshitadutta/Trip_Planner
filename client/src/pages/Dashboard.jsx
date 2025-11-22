@@ -1,12 +1,26 @@
-import { useState, useEffect } from "react"
-import { MapPin, Calendar, DollarSign, Hotel, Utensils, Activity, Clock, Edit2, Share2, Download, ChevronRight, Cloud, Droplets, Wind, Info, Image as ImageIcon, BookOpen, Plane } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import {
+  MapPin, Calendar, DollarSign, Hotel, Utensils, Activity, Clock,
+  Edit2, Share2, Download, ChevronRight, Cloud, Plus, Search,
+  MoreHorizontal, Sparkles, Layout, FileText, Compass, ChevronLeft, X
+} from "lucide-react"
+import { Autocomplete } from "@react-google-maps/api"
 import TripMap from "../components/TripMap"
 
 export default function Dashboard() {
   const [trip, setTrip] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [regenerating, setRegenerating] = useState(false)
   const [user, setUser] = useState(null)
-  const [selectedDay, setSelectedDay] = useState(0)
+  const [activeSection, setActiveSection] = useState('itinerary')
+  const [explorePlaces, setExplorePlaces] = useState({ attractions: [], hotels: [], restaurants: [] })
+  const [activeExploreTab, setActiveExploreTab] = useState('attractions')
+  const [isAddPlaceModalOpen, setIsAddPlaceModalOpen] = useState(false)
+  const [selectedDayIndex, setSelectedDayIndex] = useState(null)
+  const [newPlace, setNewPlace] = useState('')
+  const [selectedPlace, setSelectedPlace] = useState(null)
+  const autocompleteRef = useRef(null)
+  const scrollRef = useRef(null)
 
   useEffect(() => {
     const loadTrip = async () => {
@@ -20,11 +34,23 @@ export default function Dashboard() {
       }
 
       try {
-        const response = await fetch(`http://localhost:3001/api/trips/${tripId}`)
-        const data = await response.json()
-        
-        if (data.success) {
-          setTrip(data.trip)
+        // Load trip first
+        const tripRes = await fetch(`http://localhost:3001/api/trips/${tripId}`)
+        const tripData = await tripRes.json()
+
+        if (tripData.success) {
+          setTrip(tripData.trip)
+
+          // Then try to load explore places (don't block if fails)
+          try {
+            const exploreRes = await fetch(`http://localhost:3001/api/trips/${tripId}/explore`)
+            const exploreData = await exploreRes.json()
+            if (exploreData.success && exploreData.places) {
+              setExplorePlaces(exploreData.places)
+            }
+          } catch (exploreError) {
+            console.error('Error loading explore places:', exploreError)
+          }
         }
       } catch (error) {
         console.error('Error loading trip:', error)
@@ -36,376 +62,472 @@ export default function Dashboard() {
     loadTrip()
   }, [])
 
+  const handleRegenerate = async () => {
+    setRegenerating(true)
+    try {
+      const response = await fetch(`http://localhost:3001/api/trips/${trip._id}/generate`, {
+        method: 'POST'
+      })
+      const data = await response.json()
+      if (data.success) {
+        setTrip(data.trip)
+      }
+    } catch (error) {
+      console.error('Error regenerating itinerary:', error)
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
+  const handleAddToTrip = (place, dayIndex) => {
+    if (!place) {
+      // Close handler
+      setSelectedPlace(null)
+      return
+    }
+
+    if (dayIndex === -1) return // Just closing
+
+    const updatedTrip = { ...trip }
+    const newActivity = {
+      time: "Flexible",
+      activity: `Visit ${place.name}`,
+      location: place.name,
+      duration: "2 hours",
+      cost: 0,
+      description: place.description || "Added from Explore",
+      coordinates: place.geometry ? { lat: place.geometry.lat, lng: place.geometry.lng } : null
+    }
+
+    if (updatedTrip.itinerary[dayIndex]) {
+      updatedTrip.itinerary[dayIndex].activities.push(newActivity)
+      setTrip(updatedTrip)
+      setSelectedPlace(null) // Close after adding
+
+      // Scroll to the day
+      setTimeout(() => scrollToDay(dayIndex), 100)
+    }
+  }
+
+  const openAddPlaceModal = (dayIndex) => {
+    setSelectedDayIndex(dayIndex)
+    setIsAddPlaceModalOpen(true)
+    setNewPlace('')
+  }
+
+  const handlePlaceSelect = () => {
+    if (autocompleteRef.current) {
+      const place = autocompleteRef.current.getPlace()
+      if (place && place.name) {
+        setNewPlace(place.name)
+      }
+    }
+  }
+
+  const handleAddPlaceSubmit = async () => {
+    if (!newPlace || selectedDayIndex === null) return
+
+    // In a real app, we would send this to the backend to add to the specific day
+    // For now, we'll update the local state to show it visually
+    const updatedTrip = { ...trip }
+    const newActivity = {
+      time: "Flexible",
+      activity: `Visit ${newPlace}`,
+      location: newPlace,
+      duration: "2 hours",
+      cost: 0,
+      description: "Added manually"
+    }
+
+    updatedTrip.itinerary[selectedDayIndex].activities.push(newActivity)
+    setTrip(updatedTrip)
+    setIsAddPlaceModalOpen(false)
+
+    // TODO: Sync with backend
+    // await fetch(...)
+  }
+
+  const scrollToDay = (index) => {
+    const element = document.getElementById(`day-${index}`)
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-muted-foreground font-medium">Loading your adventure...</p>
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-gray-500 font-medium">Loading your adventure...</p>
         </div>
       </div>
     )
   }
 
-  if (!trip) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-muted-foreground mb-4">Trip not found</p>
-          <button 
-            onClick={() => window.location.href = '/'}
-            className="px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-          >
-            Go Home
-          </button>
-        </div>
-      </div>
-    )
-  }
+  if (!trip) return null
 
-  const currentDay = trip.itinerary[selectedDay]
   const enrichedData = trip.enrichedData || {}
-  const weather = enrichedData.weather
   const images = enrichedData.images || []
-  const destinationInfo = enrichedData.destinationInfo
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Modern Header */}
-      <header className="border-b bg-card/50 backdrop-blur-lg sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <Plane className="h-6 w-6 text-primary" />
-                <h1 className="text-xl font-bold">Seven Sisters</h1>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <button className="p-2 hover:bg-accent rounded-lg transition-colors">
-                <Share2 className="h-5 w-5 text-muted-foreground" />
-              </button>
-              <button className="p-2 hover:bg-accent rounded-lg transition-colors">
-                <Download className="h-5 w-5 text-muted-foreground" />
-              </button>
-              <button 
-                onClick={() => {
-                  localStorage.clear()
-                  window.location.href = '/'
-                }}
-                className="px-4 py-2 text-muted-foreground hover:text-foreground font-medium transition-colors"
-              >
-                Logout
-              </button>
-            </div>
+    <div className="flex h-screen bg-white overflow-hidden font-sans">
+      {/* Left Sidebar */}
+      <div className="w-64 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 z-20">
+        {/* Logo / Home */}
+        <div className="p-4 border-b border-gray-100">
+          <div className="flex items-center gap-2 text-emerald-600 font-bold text-xl cursor-pointer" onClick={() => window.location.href = '/'}>
+            <Compass className="w-6 h-6" />
+            <span>TripPlanner</span>
           </div>
         </div>
-      </header>
 
-      {/* Hero Section with Image */}
-      <div className="relative h-80 overflow-hidden">
-        {images.length > 0 ? (
-          <img 
-            src={images[0].url} 
-            alt={trip.destination}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-r from-primary/20 via-secondary/20 to-accent/20" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent" />
-        
-        <div className="absolute bottom-0 left-0 right-0 p-8">
-          <div className="container mx-auto">
-            <div className="flex items-end justify-between">
-              <div>
-                <h2 className="text-4xl font-bold text-foreground mb-2">{trip.destination}</h2>
-                <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-2 bg-card/80 backdrop-blur-sm px-3 py-1.5 rounded-full">
-                    <Calendar className="h-4 w-4" />
-                    <span>{new Date(trip.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(trip.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                  </div>
-                  <div className="flex items-center gap-2 bg-card/80 backdrop-blur-sm px-3 py-1.5 rounded-full">
-                    <Clock className="h-4 w-4" />
-                    <span>{trip.duration} Days</span>
-                  </div>
-                  {weather && weather.current && (
-                    <div className="flex items-center gap-2 bg-card/80 backdrop-blur-sm px-3 py-1.5 rounded-full">
-                      <Cloud className="h-4 w-4" />
-                      <span>{weather.current.temp}°C, {weather.current.description}</span>
-                    </div>
-                  )}
+        {/* Navigation Links */}
+        <div className="p-4 space-y-1">
+          <button
+            onClick={() => setActiveSection('explore')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeSection === 'explore' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            <Layout className="w-4 h-4" />
+            Explore
+          </button>
+          <button
+            onClick={() => setActiveSection('notes')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeSection === 'notes' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            <FileText className="w-4 h-4" />
+            Notes
+          </button>
+          <button
+            onClick={() => setActiveSection('places')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeSection === 'places' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            <MapPin className="w-4 h-4" />
+            Places to visit
+          </button>
+        </div>
+
+        {/* Itinerary List */}
+        <div className="flex-1 overflow-y-auto px-4 py-2">
+          <div className="flex items-center justify-between mb-2 px-2">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Itinerary</h3>
+            <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${activeSection === 'itinerary' ? 'rotate-90' : ''}`} />
+          </div>
+          <div className="space-y-1">
+            {trip.itinerary.map((day, index) => (
+              <button
+                key={index}
+                onClick={() => scrollToDay(index)}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors text-left group"
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-gray-300 group-hover:bg-emerald-500 transition-colors" />
+                <div className="flex-1 truncate">
+                  <span className="font-medium text-gray-900 block truncate">Day {day.day}</span>
+                  <span className="text-xs text-gray-500 truncate">{day.title}</span>
                 </div>
-              </div>
-              <div className="text-right bg-card/80 backdrop-blur-sm rounded-2xl px-6 py-4">
-                <p className="text-muted-foreground text-sm mb-1">Total Budget</p>
-                <p className="text-3xl font-bold text-primary">₹{trip.budget.total.toLocaleString()}</p>
-              </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* User Profile / Logout */}
+        <div className="p-4 border-t border-gray-100 bg-gray-50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs">
+              {user?.name?.[0] || 'U'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 truncate">{user?.name || 'Traveler'}</p>
+              <button onClick={() => { localStorage.clear(); window.location.href = '/'; }} className="text-xs text-gray-500 hover:text-red-600">
+                Sign out
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Sidebar - Day Selector */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Days Navigation */}
-            <div className="bg-card rounded-xl border p-4 sticky top-24">
-              <h3 className="font-semibold mb-4">Your Itinerary</h3>
-              <div className="space-y-2">
-                {trip.itinerary.map((day, index) => (
-                  <button
-                    key={index}
-                    onClick={() => setSelectedDay(index)}
-                    className={`w-full text-left p-3 rounded-lg transition-all ${
-                      selectedDay === index
-                        ? 'bg-primary text-primary-foreground shadow-md'
-                        : 'bg-muted/50 hover:bg-muted text-foreground'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <p className={`text-xs font-medium ${selectedDay === index ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
-                          Day {day.day}
-                        </p>
-                        <p className={`font-semibold text-sm ${selectedDay === index ? 'text-primary-foreground' : 'text-foreground'}`}>
-                          {day.title}
-                        </p>
-                        <p className={`text-xs mt-0.5 ${selectedDay === index ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                          {new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </p>
-                      </div>
-                      <ChevronRight className={`w-4 h-4 ${selectedDay === index ? 'text-primary-foreground' : 'text-muted-foreground'}`} />
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-y-auto bg-white relative" ref={scrollRef}>
+        {/* Hero Header */}
+        <div className="relative h-64 w-full group">
+          {images.length > 0 ? (
+            <img
+              src={images[0].url}
+              alt={trip.destination}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-r from-emerald-100 to-teal-100" />
+          )}
+          <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-colors" />
 
-            {/* Quick Facts */}
-            {(weather || destinationInfo) && (
-              <div className="bg-card rounded-xl border p-4">
-                <h3 className="font-semibold mb-4 flex items-center gap-2">
-                  <Info className="h-5 w-5" />
-                  Quick Facts
-                </h3>
-                <div className="space-y-3">
-                  {weather && weather.current ? (
-                    <>
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Cloud className="h-4 w-4" />
-                          <span>Temperature</span>
-                        </div>
-                        <span className="font-medium">{weather.current.temp}°C</span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Droplets className="h-4 w-4" />
-                          <span>Humidity</span>
-                        </div>
-                        <span className="font-medium">{weather.current.humidity}%</span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Wind className="h-4 w-4" />
-                          <span>Wind Speed</span>
-                        </div>
-                        <span className="font-medium">{weather.current.wind_speed} m/s</span>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Weather data unavailable</p>
-                  )}
+          <div className="absolute bottom-0 left-0 right-0 p-8 text-white">
+            <div className="flex items-end justify-between">
+              <div>
+                <h1 className="text-4xl font-bold mb-2 drop-shadow-md">Trip to {trip.destination}</h1>
+                <div className="flex items-center gap-4 text-sm font-medium drop-shadow-sm">
+                  <div className="flex items-center gap-2 bg-white/20 backdrop-blur-md px-3 py-1 rounded-full">
+                    <Calendar className="w-4 h-4" />
+                    <span>{new Date(trip.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(trip.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                  </div>
+                  <div className="flex items-center gap-2 bg-white/20 backdrop-blur-md px-3 py-1 rounded-full">
+                    <DollarSign className="w-4 h-4" />
+                    <span>₹{trip.budget.total.toLocaleString()}</span>
+                  </div>
                 </div>
               </div>
-            )}
-
-            {/* Budget Breakdown */}
-            <div className="bg-card rounded-xl border p-4">
-              <h3 className="font-semibold mb-4 flex items-center gap-2">
-                <DollarSign className="h-5 w-5" />
-                Budget Breakdown
-              </h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Accommodation</span>
-                  <span className="font-medium">₹{trip.budget.accommodation.toLocaleString()}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Food & Dining</span>
-                  <span className="font-medium">₹{trip.budget.food.toLocaleString()}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Activities</span>
-                  <span className="font-medium">₹{trip.budget.activities.toLocaleString()}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Transportation</span>
-                  <span className="font-medium">₹{trip.budget.transport.toLocaleString()}</span>
-                </div>
-                <div className="border-t pt-3 flex items-center justify-between font-semibold">
-                  <span>Total</span>
-                  <span className="text-primary">₹{trip.budget.total.toLocaleString()}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Main Content - Day Details */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Destination Info */}
-            {destinationInfo && (
-              <div className="bg-card rounded-xl border p-6">
-                <h3 className="font-semibold mb-3 flex items-center gap-2">
-                  <BookOpen className="h-5 w-5" />
-                  About {destinationInfo.title}
-                </h3>
-                <p className="text-muted-foreground text-sm leading-relaxed">
-                  {destinationInfo.description}
-                </p>
-                {destinationInfo.url && (
-                  <a 
-                    href={destinationInfo.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary text-sm hover:underline mt-2 inline-block"
-                  >
-                    Read more on Wikipedia →
-                  </a>
-                )}
-              </div>
-            )}
-
-            {/* Day Header */}
-            <div className="bg-card rounded-xl border p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-2xl font-bold">{currentDay.title}</h2>
-                  <p className="text-muted-foreground mt-1">
-                    {new Date(currentDay.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-                  </p>
-                </div>
-                <button className="p-2 bg-muted hover:bg-muted/80 rounded-lg transition-colors">
-                  <Edit2 className="h-5 w-5" />
+              <div className="flex gap-2">
+                <button className="p-2 bg-white/20 backdrop-blur-md hover:bg-white/30 rounded-full transition-colors">
+                  <Share2 className="w-5 h-5" />
+                </button>
+                <button className="p-2 bg-white/20 backdrop-blur-md hover:bg-white/30 rounded-full transition-colors">
+                  <Edit2 className="w-5 h-5" />
                 </button>
               </div>
             </div>
+          </div>
+        </div>
 
-            {/* Activities */}
-            <div className="space-y-4">
-              {currentDay.activities.map((activity, index) => (
-                <div key={index} className="bg-card rounded-xl border p-6 hover:shadow-md transition-shadow">
-                  <div className="flex gap-4">
-                    <div className="flex-shrink-0">
-                      <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                        <Activity className="w-6 h-6 text-primary" />
+        <div className="max-w-4xl mx-auto px-8 py-8 space-y-12">
+
+          {/* Explore Section */}
+          <section id="explore">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-emerald-500" />
+                Explore {trip.destination}
+              </h2>
+            </div>
+
+            {/* Explore Tabs */}
+            <div className="flex gap-4 mb-6 border-b border-gray-100">
+              {['attractions', 'hotels', 'restaurants'].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveExploreTab(tab)}
+                  className={`pb-2 px-1 text-sm font-medium capitalize transition-colors relative ${activeExploreTab === tab
+                    ? 'text-emerald-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  {tab}
+                  {activeExploreTab === tab && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 rounded-t-full" />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              {explorePlaces[activeExploreTab]?.length > 0 ? (
+                explorePlaces[activeExploreTab].map((place, index) => (
+                  <div key={index} className="group cursor-pointer" onClick={() => setSelectedPlace(place)}>
+                    <div className="aspect-video rounded-xl overflow-hidden bg-gray-100 mb-2 relative">
+                      {place.photo ? (
+                        <img src={place.photo} alt={place.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                      ) : (
+                        <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-400">
+                          {activeExploreTab === 'attractions' ? <MapPin className="w-8 h-8" /> :
+                            activeExploreTab === 'hotels' ? <Hotel className="w-8 h-8" /> :
+                              <Utensils className="w-8 h-8" />}
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+                        <span className="text-white font-medium text-sm">View Details</span>
                       </div>
                     </div>
-                    <div className="flex-1">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Clock className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium text-muted-foreground">{activity.time}</span>
-                            <span className="text-sm text-muted-foreground">• {activity.duration}</span>
-                          </div>
-                          <h3 className="text-lg font-semibold mb-1">{activity.activity}</h3>
-                          <p className="text-muted-foreground text-sm mb-2">{activity.description}</p>
-                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                            <MapPin className="h-3 w-3" />
-                            <span>{activity.location}</span>
-                          </div>
-                        </div>
-                        <div className="text-right ml-4">
-                          <p className="text-xl font-bold text-primary">₹{activity.cost}</p>
-                        </div>
-                      </div>
+                    <h3 className="font-semibold text-gray-900 truncate">{place.name}</h3>
+                    <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
+                      <span className="text-yellow-500">★</span>
+                      <span>{place.rating}</span>
+                      <span>({place.user_ratings_total})</span>
                     </div>
+                    <p className="text-xs text-gray-600 line-clamp-2">{place.description}</p>
+                  </div>
+                ))
+              ) : (
+                <div className="col-span-3 py-8 text-center text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                  <p>No {activeExploreTab} found or loading...</p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Places to Visit Search */}
+          <section className="bg-gray-50 rounded-xl p-6 border border-gray-100">
+            <h2 className="text-lg font-bold text-gray-900 mb-4">Places to visit</h2>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search for places to add..."
+                className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent bg-white shadow-sm"
+              />
+            </div>
+          </section>
+
+          {/* Itinerary Section */}
+          <section className="space-y-8">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-gray-900">Itinerary</h2>
+              <button
+                onClick={handleRegenerate}
+                disabled={regenerating}
+                className={`flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-lg font-medium hover:bg-emerald-100 transition-colors ${regenerating ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {regenerating ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-emerald-700 border-t-transparent rounded-full animate-spin"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Regenerate with AI
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="space-y-8">
+              {trip.itinerary.map((day, index) => (
+                <div key={index} id={`day-${index}`} className="relative pl-8 border-l-2 border-gray-100 pb-8 last:pb-0">
+                  {/* Timeline Dot */}
+                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-emerald-500 border-4 border-white shadow-sm" />
+
+                  {/* Day Header */}
+                  <div className="mb-6">
+                    <h3 className="text-xl font-bold text-gray-900">
+                      {new Date(day.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                    </h3>
+                    <p className="text-gray-500 text-sm mt-1">{day.title}</p>
+                  </div>
+
+                  {/* Activities List */}
+                  <div className="space-y-4">
+                    {day.activities.length > 0 ? (
+                      day.activities.map((activity, actIndex) => (
+                        <div key={actIndex} className="group bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all cursor-pointer flex gap-4 items-start">
+                          <div className="w-16 h-16 bg-gray-100 rounded-lg flex-shrink-0 overflow-hidden">
+                            {/* Placeholder for activity image if available, else icon */}
+                            <div className="w-full h-full flex items-center justify-center bg-emerald-50 text-emerald-500">
+                              <MapPin className="w-6 h-6" />
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex justify-between items-start">
+                              <h4 className="font-semibold text-gray-900 truncate">{activity.activity}</h4>
+                              <button className="text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <MoreHorizontal className="w-5 h-5" />
+                              </button>
+                            </div>
+                            <p className="text-sm text-gray-500 line-clamp-2 mt-1">{activity.description}</p>
+                            <div className="flex items-center gap-3 mt-3 text-xs text-gray-500">
+                              <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">
+                                <Clock className="w-3 h-3" />
+                                {activity.time}
+                              </span>
+                              <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">
+                                <DollarSign className="w-3 h-3" />
+                                ₹{activity.cost}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-gray-400 italic">No activities planned yet.</p>
+                    )}
+
+                    {/* Add Place Button */}
+                    <button
+                      onClick={() => openAddPlaceModal(index)}
+                      className="w-full py-3 border-2 border-dashed border-gray-200 rounded-xl text-gray-500 font-medium hover:border-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Plus className="w-5 h-5" />
+                      Add a place
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
+          </section>
 
-            {/* Meals */}
-            <div className="bg-card rounded-xl border p-6">
-              <h3 className="font-semibold mb-4 flex items-center gap-2">
-                <Utensils className="h-5 w-5" />
-                Meals for the Day
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {currentDay.meals.map((meal, index) => (
-                  <div key={index} className="bg-muted/50 rounded-lg p-4 border">
-                    <p className="text-xs text-muted-foreground font-semibold uppercase mb-1">{meal.mealType}</p>
-                    <p className="font-semibold text-foreground">{meal.restaurant}</p>
-                    <p className="text-primary font-semibold mt-2">₹{meal.cost}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Accommodation */}
-            {currentDay.accommodation && (
-              <div className="bg-card rounded-xl border p-6">
-                <h3 className="font-semibold mb-4 flex items-center gap-2">
-                  <Hotel className="h-5 w-5" />
-                  Tonight's Stay
-                </h3>
-                <div className="bg-muted/50 rounded-lg p-6 border">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h4 className="text-xl font-bold mb-2">{currentDay.accommodation.name}</h4>
-                      <p className="text-muted-foreground capitalize mb-3">{currentDay.accommodation.hotelType} Hotel</p>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span>Check-in: {currentDay.accommodation.checkIn}</span>
-                        <span>•</span>
-                        <span>Check-out: {currentDay.accommodation.checkOut}</span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-primary">₹{currentDay.accommodation.cost}</p>
-                      <p className="text-sm text-muted-foreground">per night</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Map */}
-            <TripMap 
-              activities={currentDay.activities}
-              destination={trip.destination}
-            />
-
-            {/* Photo Gallery */}
-            {images.length > 0 && (
-              <div className="bg-card rounded-xl border p-6">
-                <h3 className="font-semibold mb-4 flex items-center gap-2">
-                  <ImageIcon className="h-5 w-5" />
-                  Destination Gallery
-                </h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {images.slice(0, 6).map((image, index) => (
-                    <div key={index} className="relative aspect-video rounded-lg overflow-hidden group cursor-pointer">
-                      <img 
-                        src={image.thumbnail || image.url} 
-                        alt={image.description || trip.destination}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                      />
-                      {image.photographer && (
-                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
-                          <p className="text-white text-xs">Photo by {image.photographer}</p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Notes Section */}
+          <section className="pt-8 border-t border-gray-100">
+            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-gray-400" />
+              Trip Notes
+            </h2>
+            <textarea
+              className="w-full h-32 p-4 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent resize-none text-gray-600"
+              placeholder="Write down your thoughts, reminders, or packing list here..."
+            ></textarea>
+          </section>
         </div>
       </div>
+
+      {/* Right Map Sidebar */}
+      <div className="w-[600px] bg-gray-100 border-l border-gray-200 flex-shrink-0 relative hidden xl:block">
+        <TripMap
+          activities={trip.itinerary.flatMap(day => day.activities)}
+          destination={trip.destination}
+          selectedPlace={selectedPlace}
+          onAddToTrip={handleAddToTrip}
+        />
+        {/* Floating Map Controls could go here */}
+        <div className="absolute top-4 right-4 flex flex-col gap-2">
+          <button className="p-2 bg-white rounded-lg shadow-md hover:bg-gray-50 text-gray-600">
+            <Share2 className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Add Place Modal */}
+      {isAddPlaceModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold">Add a Place</h3>
+              <button onClick={() => setIsAddPlaceModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Search for a place</label>
+                <Autocomplete
+                  onLoad={ref => autocompleteRef.current = ref}
+                  onPlaceChanged={handlePlaceSelect}
+                >
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={newPlace}
+                      onChange={(e) => setNewPlace(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      placeholder="e.g., Taj Mahal, Cafe Coffee Day..."
+                    />
+                  </div>
+                </Autocomplete>
+              </div>
+
+              <button
+                onClick={handleAddPlaceSubmit}
+                disabled={!newPlace}
+                className={`w-full py-2 rounded-lg font-medium transition-colors ${newPlace
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  }`}
+              >
+                Add to Day {selectedDayIndex + 1}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

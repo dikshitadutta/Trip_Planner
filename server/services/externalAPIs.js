@@ -3,7 +3,7 @@ import axios from 'axios';
 // Unsplash API - Get destination images
 export const getDestinationImages = async (destination) => {
   const apiKey = process.env.UNSPLASH_ACCESS_KEY;
-  
+
   if (!apiKey) {
     console.log('⚠️  Unsplash API key not configured');
     return [];
@@ -24,14 +24,14 @@ export const getDestinationImages = async (destination) => {
         }
       }
     );
-    
+
     const images = response.data.results.map(img => ({
       url: img.urls.regular,
       thumbnail: img.urls.small,
       photographer: img.user.name,
       description: img.description || img.alt_description
     }));
-    
+
     console.log(`✅ Found ${images.length} images`);
     return images;
   } catch (error) {
@@ -44,14 +44,19 @@ export const getDestinationImages = async (destination) => {
 export const getDestinationInfo = async (destination) => {
   try {
     console.log(`📚 Fetching info for: ${destination}`);
-    
+
     // Clean destination name for Wikipedia
     const searchTerm = destination.split(',')[0].trim();
-    
+
     const response = await axios.get(
-      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(searchTerm)}`
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(searchTerm)}`,
+      {
+        headers: {
+          'User-Agent': 'TripPlanner/1.0 (rishav@example.com)'
+        }
+      }
     );
-    
+
     const info = {
       title: response.data.title,
       description: response.data.extract,
@@ -59,7 +64,7 @@ export const getDestinationInfo = async (destination) => {
       url: response.data.content_urls?.desktop?.page,
       coordinates: response.data.coordinates
     };
-    
+
     console.log(`✅ Got info for: ${info.title}`);
     return info;
   } catch (error) {
@@ -76,7 +81,7 @@ export const getDestinationInfo = async (destination) => {
 // OpenWeatherMap API - Get weather forecast
 export const getWeatherForecast = async (city, startDate) => {
   const apiKey = process.env.OPENWEATHER_API_KEY;
-  
+
   if (!apiKey) {
     console.log('⚠️  OpenWeatherMap API key not configured');
     return null;
@@ -84,7 +89,7 @@ export const getWeatherForecast = async (city, startDate) => {
 
   try {
     console.log(`🌤️  Fetching weather for: ${city}`);
-    
+
     // Get coordinates first
     const geoResponse = await axios.get(
       `https://api.openweathermap.org/geo/1.0/direct`,
@@ -96,13 +101,13 @@ export const getWeatherForecast = async (city, startDate) => {
         }
       }
     );
-    
+
     if (!geoResponse.data.length) {
       return null;
     }
-    
+
     const { lat, lon } = geoResponse.data[0];
-    
+
     // Get 5-day forecast
     const weatherResponse = await axios.get(
       `https://api.openweathermap.org/data/2.5/forecast`,
@@ -115,7 +120,7 @@ export const getWeatherForecast = async (city, startDate) => {
         }
       }
     );
-    
+
     const forecast = {
       city: weatherResponse.data.city.name,
       country: weatherResponse.data.city.country,
@@ -136,7 +141,7 @@ export const getWeatherForecast = async (city, startDate) => {
         icon: day.weather[0].icon
       }))
     };
-    
+
     console.log(`✅ Weather: ${forecast.current.temp}°C, ${forecast.current.description}`);
     return forecast;
   } catch (error) {
@@ -148,7 +153,7 @@ export const getWeatherForecast = async (city, startDate) => {
 // Google Places API - Get place details (optional, requires API key)
 export const getPlaceDetails = async (placeName) => {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-  
+
   if (!apiKey) {
     console.log('⚠️  Google Maps API key not configured');
     return null;
@@ -167,13 +172,13 @@ export const getPlaceDetails = async (placeName) => {
         }
       }
     );
-    
+
     if (!searchResponse.data.candidates.length) {
       return null;
     }
-    
+
     const place = searchResponse.data.candidates[0];
-    
+
     return {
       name: place.name,
       address: place.formatted_address,
@@ -189,7 +194,7 @@ export const getPlaceDetails = async (placeName) => {
 // Enrich destination data with external APIs
 export const enrichDestinationData = async (destination) => {
   console.log(`\n🌍 Enriching data for: ${destination}`);
-  
+
   try {
     // Fetch all data in parallel
     const [images, info, weather] = await Promise.all([
@@ -197,7 +202,7 @@ export const enrichDestinationData = async (destination) => {
       getDestinationInfo(destination),
       getWeatherForecast(destination.split(',')[0])
     ]);
-    
+
     return {
       destination,
       images,

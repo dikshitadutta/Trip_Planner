@@ -17,6 +17,7 @@
   "license": "ISC",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@googlemaps/google-maps-services-js": "^3.4.2",
     "axios": "^1.13.2",
     "connect-mongo": "^5.1.0",
     "cors": "^2.8.5",

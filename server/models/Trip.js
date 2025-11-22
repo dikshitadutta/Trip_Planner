@@ -47,10 +47,10 @@ const tripSchema = new mongoose.Schema({
   hotelPreference: String,
   hotelBudgetMin: Number,
   hotelBudgetMax: Number,
-  
+
   // Generated itinerary
   itinerary: [dayPlanSchema],
-  
+
   // Budget breakdown
   budget: {
     accommodation: Number,
@@ -60,7 +60,7 @@ const tripSchema = new mongoose.Schema({
     miscellaneous: Number,
     total: Number
   },
-  
+
   // Recommendations
   recommendations: {
     flights: [{
@@ -85,7 +85,7 @@ const tripSchema = new mongoose.Schema({
       location: String
     }]
   },
-  
+
   // Collaboration
   collaborators: [{
     userId: {
@@ -104,7 +104,8 @@ const tripSchema = new mongoose.Schema({
       default: Date.now
     }
   }],
-  
+  invitedEmails: [String],
+
   // Enriched data from external APIs
   enrichedData: {
     images: [{
@@ -144,14 +145,14 @@ const tripSchema = new mongoose.Schema({
       }]
     }
   },
-  
+
   // Status
   status: {
     type: String,
     enum: ['draft', 'planned', 'ongoing', 'completed'],
     default: 'draft'
   },
-  
+
   createdAt: {
     type: Date,
     default: Date.now
@@ -163,7 +164,7 @@ const tripSchema = new mongoose.Schema({
 });
 
 // Update timestamp on save
-tripSchema.pre('save', function(next) {
+tripSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
   next();
 });

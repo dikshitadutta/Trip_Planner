@@ -10,6 +10,8 @@ import Trip from './models/Trip.js';
 import { generateItinerary, generateRecommendations } from './services/itineraryGenerator.js';
 import { generateAIItinerary } from './services/aiItineraryGenerator.js';
 import { enrichDestinationData } from './services/externalAPIs.js';
+import { getExplorePlaces } from './services/googlePlaces.js';
+import { getWikipediaSummary } from './services/wikipedia.js';
 
 dotenv.config();
 
@@ -104,96 +106,145 @@ app.post('/api/auth/logout', (req, res) => {
   });
 });
 
-// Create trip with generated itinerary
+// Create Trip (Empty Structure for Manual Planning)
 app.post('/api/trips/create', async (req, res) => {
   try {
     const tripData = req.body;
-
-    console.log('\n🗺️  Received trip data:', JSON.stringify(tripData, null, 2));
-    console.log('Generating itinerary for:', tripData.destination);
+    console.log('\n🗺️  Creating new trip for:', tripData.destination);
 
     // Validate required fields
     if (!tripData.userId) {
-      return res.status(400).json({
-        success: false,
-        message: 'User ID is required'
-      });
+      return res.status(400).json({ success: false, message: 'User ID is required' });
     }
-
     if (!tripData.startDate || !tripData.endDate) {
-      return res.status(400).json({
-        success: false,
-        message: 'Start and end dates are required'
-      });
+      return res.status(400).json({ success: false, message: 'Start and end dates are required' });
     }
 
-    // Generate itinerary using AI (with fallback to template)
-    console.log('🤖 Generating AI-powered itinerary...');
-    const useAI = process.env.GEMINI_API_KEY && process.env.GOOGLE_MAPS_API_KEY;
+    // Calculate duration
+    const start = new Date(tripData.startDate);
+    const end = new Date(tripData.endDate);
+    const duration = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
 
-    const { itinerary, budget, duration } = useAI
-      ? await generateAIItinerary(tripData)
-      : generateItinerary(tripData);
+    // Create Empty Itinerary
+    const emptyItinerary = Array.from({ length: duration }, (_, i) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + i);
+      return {
+        day: i + 1,
+        date: date,
+        title: `Day ${i + 1} in ${tripData.destination}`,
+        activities: [],
+        meals: []
+      };
+    });
 
-    console.log(`✅ Generated ${duration}-day itinerary with ${itinerary.length} days`);
-
-    console.log('🎯 Generating recommendations...');
-    const recommendations = generateRecommendations(tripData);
-
-    // Enrich with external API data
-    console.log('🌍 Fetching destination data from external APIs...');
-    const enrichedData = await enrichDestinationData(tripData.destination);
-    console.log(`✅ Enriched data: ${enrichedData.images.length} images, weather: ${enrichedData.weather?.current.temp}°C`);
+    // Fetch initial explore data (images)
+    console.log('🌍 Fetching initial destination data...');
+    const explorePlaces = await getExplorePlaces(tripData.destination);
+    const enrichedData = await enrichDestinationData(tripData.destination); // Keep existing enrichment for weather/info
 
     // Create trip in database
-    console.log('💾 Saving to database...');
     const trip = new Trip({
       userId: tripData.userId,
-      departure: tripData.departure || 'Not specified',
-      destination: tripData.destination || 'Not specified',
+      destination: tripData.destination,
       startDate: tripData.startDate,
       endDate: tripData.endDate,
       duration,
-      activityPreference: tripData.activityPreference || 'Mixed Experience',
-      groupType: tripData.groupType || 'solo',
       hotelPreference: tripData.hotelPreference || 'standard',
       hotelBudgetMin: tripData.hotelBudgetMin || 1000,
       hotelBudgetMax: tripData.hotelBudgetMax || 5000,
-      itinerary,
-      budget,
-      recommendations,
+      invitedEmails: tripData.invitedEmails || [],
+      itinerary: emptyItinerary,
+      budget: {
+        total: 0,
+        currency: "INR",
+        breakdown: { accommodation: 0, activities: 0, food: 0, transport: 0 }
+      },
       enrichedData: {
-        images: enrichedData.images,
+        images: explorePlaces.length > 0 ? explorePlaces.map(p => ({ url: p.photo, description: p.name })) : enrichedData.images,
         destinationInfo: enrichedData.info,
         weather: enrichedData.weather
       },
-      status: 'draft'
+      status: 'planned'
     });
 
     await trip.save();
-
     console.log('✅ Trip created successfully:', trip._id);
-    console.log(`💰 Total budget: ₹${budget.total}\n`);
 
     res.json({
       success: true,
-      message: 'Itinerary generated successfully!',
       trip: {
         id: trip._id,
         destination: trip.destination,
+        startDate: trip.startDate,
+        endDate: trip.endDate,
         duration: trip.duration,
-        itinerary: trip.itinerary,
         budget: trip.budget,
-        recommendations: trip.recommendations
+        itinerary: trip.itinerary,
+        enrichedData: trip.enrichedData
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating trip:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create trip: ' + error.message
+    });
+  }
+});
+
+// Get Explore Places
+app.get('/api/trips/:id/explore', async (req, res) => {
+  try {
+    const trip = await Trip.findById(req.params.id);
+    if (!trip) return res.status(404).json({ success: false, message: 'Trip not found' });
+
+    const [attractions, hotels, restaurants] = await Promise.all([
+      getExplorePlaces(trip.destination, 'attractions'),
+      getExplorePlaces(trip.destination, 'hotels'),
+      getExplorePlaces(trip.destination, 'restaurants')
+    ]);
+
+    // Enrich attractions with Wikipedia summaries
+    const enrichedAttractions = await Promise.all(attractions.map(async (place) => {
+      const summary = await getWikipediaSummary(place.name);
+      return { ...place, description: summary || place.description };
+    }));
+
+    res.json({
+      success: true,
+      places: {
+        attractions: enrichedAttractions,
+        hotels,
+        restaurants
       }
     });
   } catch (error) {
-    console.error('❌ Error creating trip:', error);
-    console.error('Error stack:', error.stack);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to generate itinerary: ' + error.message
-    });
+    console.error('Error fetching explore places:', error);
+    res.status(500).json({ success: false, message: 'Error fetching places' });
+  }
+});
+// Generate/Regenerate Itinerary with AI
+app.post('/api/trips/:id/generate', async (req, res) => {
+  try {
+    const trip = await Trip.findById(req.params.id);
+    if (!trip) return res.status(404).json({ success: false, message: 'Trip not found' });
+
+    console.log('🤖 Generating AI itinerary for trip:', trip._id);
+
+    // Call AI Generator with CURRENT trip data (to respect existing plans)
+    const { itinerary, budget } = await generateAIItinerary(trip);
+
+    // Update trip with new itinerary
+    trip.itinerary = itinerary;
+    trip.budget = budget;
+    await trip.save();
+
+    res.json({ success: true, trip });
+  } catch (error) {
+    console.error('Error generating itinerary:', error);
+    res.status(500).json({ success: false, message: 'Failed to generate itinerary' });
   }
 });
 

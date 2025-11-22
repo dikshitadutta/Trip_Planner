@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom"
 import Navbar from "./components/Navbar"
 import VideoHero from "./components/VideoHero"
 import Hero from "./components/Hero"
+import PlannedTrips from "./components/PlannedTrips"
 import HowItWorks from "./components/HowItWorks"
 import Destinations from "./components/Destinations"
 import CTA from "./components/CTA"
@@ -16,6 +17,7 @@ function HomePage() {
       <main className="overflow-hidden">
         <VideoHero />
         <Hero />
+        <PlannedTrips />
         <HowItWorks />
         <Destinations />
         <CTA />

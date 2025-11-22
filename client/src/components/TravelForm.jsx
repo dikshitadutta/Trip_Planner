@@ -1,6 +1,8 @@
 "use client"
-import { Calendar, Users, UserCircle2, Hotel, ChevronLeft } from "lucide-react"
+import { Calendar, Users, UserCircle2, Hotel, ChevronLeft, Mail, X, Plus } from "lucide-react"
 import { useState, useEffect, useCallback } from "react"
+import DatePicker from "react-datepicker"
+import "react-datepicker/dist/react-datepicker.css"
 import LocationAutocomplete from "./LocationAutocomplete"
 import GoogleAuth from "./GoogleAuth"
 import { useLoadScript } from "@react-google-maps/api"
@@ -9,20 +11,22 @@ const libraries = ["places"]
 
 export default function TravelForm() {
   const [step, setStep] = useState(1)
+  const [user, setUser] = useState(null)
   const [formData, setFormData] = useState({
-    departure: "Guwahati",
     destination: "",
-    startDate: "",
-    endDate: "",
-    activityPreference: "Adventure & Trekking",
-    groupType: "",
-    hotelPreference: "",
+    startDate: null,
+    endDate: null,
+    activityPreference: "Mixed Experience", // Default value since UI is removed
+    hotelPreference: "standard", // Default value since UI is removed
     hotelBudgetMin: 1000,
     hotelBudgetMax: 5000,
     name: "",
     phone: "",
-    otp: ""
+    otp: "",
+    invitedEmails: [],
+    groupType: "friends" // Defaulting to friends since selection is removed
   })
+  const [emailInput, setEmailInput] = useState("")
   const [authError, setAuthError] = useState("")
   const [isCreatingTrip, setIsCreatingTrip] = useState(false)
 
@@ -33,21 +37,23 @@ export default function TravelForm() {
 
   const API_URL = "http://localhost:3001"
 
-  const handleGoogleAuthSuccess = useCallback(async (user, savedFormData) => {
+  const createTrip = useCallback(async (userData, tripFormData) => {
     setIsCreatingTrip(true)
     setAuthError("")
 
     try {
-      console.log('Creating trip with user:', user);
-      console.log('Form data:', savedFormData);
+      console.log('Creating trip with user:', userData);
+      console.log('Form data:', tripFormData);
 
       // Create trip with generated itinerary
       const tripResponse = await fetch(`${API_URL}/api/trips/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: user._id || user.id,
-          ...savedFormData
+          userId: userData._id || userData.id,
+          ...tripFormData,
+          // Ensure dates are formatted correctly if needed by backend, 
+          // though Date objects usually stringify to ISO
         })
       })
 
@@ -57,7 +63,7 @@ export default function TravelForm() {
         console.log("Trip created:", tripData.trip)
         // Store trip ID in localStorage
         localStorage.setItem('currentTripId', tripData.trip.id)
-        localStorage.setItem('user', JSON.stringify(user))
+        localStorage.setItem('user', JSON.stringify(userData))
 
         // Navigate to dashboard
         alert(`🎉 Your ${tripData.trip.duration}-day itinerary is ready!\n\nBudget: ₹${tripData.trip.budget.total.toLocaleString()}\n\nRedirecting to dashboard...`)
@@ -74,6 +80,23 @@ export default function TravelForm() {
     }
   }, [API_URL]);
 
+  const handleGoogleAuthSuccess = useCallback(async (userData, savedFormData) => {
+    await createTrip(userData, savedFormData);
+  }, [createTrip]);
+
+  // Check for logged-in user on mount
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (error) {
+        console.error('Error parsing stored user:', error);
+        localStorage.removeItem('user');
+      }
+    }
+  }, []);
+
   // Save form data before OAuth and restore after
   useEffect(() => {
     // Check if returning from OAuth
@@ -82,17 +105,21 @@ export default function TravelForm() {
 
     if (userParam) {
       try {
-        const user = JSON.parse(decodeURIComponent(userParam));
+        const userData = JSON.parse(decodeURIComponent(userParam));
         // Restore form data from sessionStorage
         const savedFormData = sessionStorage.getItem('tripFormData');
         const savedStep = sessionStorage.getItem('tripFormStep');
 
         if (savedFormData) {
           const parsedFormData = JSON.parse(savedFormData);
+          // Restore Date objects from strings
+          if (parsedFormData.startDate) parsedFormData.startDate = new Date(parsedFormData.startDate);
+          if (parsedFormData.endDate) parsedFormData.endDate = new Date(parsedFormData.endDate);
+
           setFormData(parsedFormData);
 
           // Trigger trip creation with saved form data
-          handleGoogleAuthSuccess(user, parsedFormData);
+          handleGoogleAuthSuccess(userData, parsedFormData);
         }
         if (savedStep) {
           setStep(parseInt(savedStep));
@@ -109,15 +136,15 @@ export default function TravelForm() {
     }
   }, [handleGoogleAuthSuccess]);
 
-  // Save form data when reaching step 4
+  // Save form data when reaching step 2 (Login)
   useEffect(() => {
-    if (step === 4) {
+    if (step === 2) {
       sessionStorage.setItem('tripFormData', JSON.stringify(formData));
       sessionStorage.setItem('tripFormStep', step.toString());
     }
   }, [step, formData]);
 
-  const handleNext = (e) => {
+  const handleNext = async (e) => {
     e.preventDefault()
 
     // Validate step 1
@@ -129,19 +156,13 @@ export default function TravelForm() {
       setAuthError("")
     }
 
-    // Validate step 2
-    if (step === 2 && !formData.groupType) {
-      setAuthError("Please select a group type")
-      return
+    // If user is logged in and we're at step 1, create trip directly
+    if (step === 1 && user) {
+      await createTrip(user, formData);
+      return;
     }
 
-    // Validate step 3
-    if (step === 3 && !formData.hotelPreference) {
-      setAuthError("Please select a hotel preference")
-      return
-    }
-
-    if (step < 4) {
+    if (step < 2) {
       setStep(step + 1)
     }
   }
@@ -152,6 +173,35 @@ export default function TravelForm() {
     }
   }
 
+  const handleAddEmail = () => {
+    if (emailInput && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailInput)) {
+      if (!formData.invitedEmails.includes(emailInput)) {
+        setFormData({
+          ...formData,
+          invitedEmails: [...formData.invitedEmails, emailInput]
+        })
+        setEmailInput("")
+        setAuthError("")
+      } else {
+        setAuthError("Email already added")
+      }
+    } else {
+      setAuthError("Please enter a valid email")
+    }
+  }
+
+  const removeEmail = (emailToRemove) => {
+    setFormData({
+      ...formData,
+      invitedEmails: formData.invitedEmails.filter(email => email !== emailToRemove)
+    })
+  }
+
+  const handleDateChange = (dates) => {
+    const [start, end] = dates;
+    setFormData({ ...formData, startDate: start, endDate: end });
+  };
+
   if (!isLoaded) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -161,7 +211,7 @@ export default function TravelForm() {
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-2xl p-8 space-y-6">
+    <div className="bg-white/95 backdrop-blur-md border border-white/20 rounded-2xl shadow-2xl p-8 space-y-6">
       {/* Header with Back Button */}
       <div className="flex items-center gap-4">
         {step > 1 && (
@@ -176,22 +226,18 @@ export default function TravelForm() {
         <div className="flex-1">
           <h2 className="text-2xl font-bold text-gray-900">
             {step === 1 && "Plan Your Adventure"}
-            {step === 2 && "Group Type"}
-            {step === 3 && "Hotel Preferences"}
-            {step === 4 && "Login to Continue"}
+            {step === 2 && "Login to Continue"}
           </h2>
           <p className="text-gray-600 text-sm mt-1">
-            {step === 1 && "Create your perfect North East journey"}
-            {step === 2 && "Who are you traveling with?"}
-            {step === 3 && "Choose your accommodation preferences"}
-            {step === 4 && "Secure your trip details"}
+            {step === 1 && "Where do you want to go?"}
+            {step === 2 && "Secure your trip details"}
           </p>
         </div>
       </div>
 
       {/* Progress Bar */}
       <div className="flex gap-2">
-        {[1, 2, 3, 4].map((s) => (
+        {[1, 2].map((s) => (
           <div
             key={s}
             className={`h-2 flex-1 rounded-full transition-colors ${s <= step ? "bg-emerald-500" : "bg-gray-200"
@@ -201,221 +247,165 @@ export default function TravelForm() {
       </div>
 
       {/* Error Message for all steps */}
-      {authError && step < 4 && (
+      {authError && step < 2 && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
           {authError}
         </div>
       )}
 
       <form onSubmit={handleNext} className="space-y-5">
-        {/* Step 1: Trip Details */}
+        {/* Step 1: Trip Details & Invites */}
         {step === 1 && (
-          <>
-            <div>
-              <label className="block text-sm font-semibold text-gray-800 mb-2">
-                What do you want to explore?
-              </label>
-              <div className="space-y-3">
-                <LocationAutocomplete
-                  value={formData.departure}
-                  onChange={(value) => setFormData({ ...formData, departure: value })}
-                  placeholder="Departing from..."
-                  region="northeast"
-                />
-                <LocationAutocomplete
-                  value={formData.destination}
-                  onChange={(value) => setFormData({ ...formData, destination: value })}
-                  placeholder="Search destination..."
-                  region="northeast"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-800 mb-2">
-                When are you planning to travel?
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex items-center gap-2 border-2 border-gray-200 rounded-lg px-4 py-3 focus-within:border-emerald-500 transition-colors">
-                  <Calendar className="w-5 h-5 text-gray-600" />
-                  <input
-                    type="date"
-                    value={formData.startDate}
-                    onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                    className="flex-1 bg-transparent outline-none text-gray-900 text-sm"
-                    required
-                  />
-                </div>
-                <div className="flex items-center gap-2 border-2 border-gray-200 rounded-lg px-4 py-3 focus-within:border-emerald-500 transition-colors">
-                  <Calendar className="w-5 h-5 text-gray-600" />
-                  <input
-                    type="date"
-                    value={formData.endDate}
-                    onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                    className="flex-1 bg-transparent outline-none text-gray-900 text-sm"
-                    required
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-800 mb-2">
-                Activity Preferences
-              </label>
-              <select
-                value={formData.activityPreference}
-                onChange={(e) => setFormData({ ...formData, activityPreference: e.target.value })}
-                className="w-full border-2 border-gray-200 rounded-lg px-4 py-3 bg-white text-gray-900 focus:outline-none focus:border-emerald-500 transition-colors"
-              >
-                <option>Adventure & Trekking</option>
-                <option>Cultural & Heritage</option>
-                <option>Nature & Wildlife</option>
-                <option>Beach & Relaxation</option>
-                <option>Mixed Experience</option>
-              </select>
-            </div>
-          </>
-        )}
-
-        {/* Step 2: Group Type */}
-        {step === 2 && (
-          <div className="space-y-4">
-            <label className="block text-sm font-semibold text-gray-800 mb-4">
-              Select your group type
-            </label>
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { value: "solo", label: "Solo", icon: UserCircle2, desc: "Traveling alone" },
-                { value: "couple", label: "Couple", icon: Users, desc: "Just the two of us" },
-                { value: "friends", label: "Friends", icon: Users, desc: "Group of friends" },
-                { value: "family", label: "Family", icon: Users, desc: "Family vacation" }
-              ].map((type) => (
-                <button
-                  key={type.value}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, groupType: type.value })}
-                  className={`p-6 border-2 rounded-xl transition-all ${formData.groupType === type.value
-                      ? "border-emerald-500 bg-emerald-50"
-                      : "border-gray-200 hover:border-emerald-300"
-                    }`}
-                >
-                  <type.icon className={`w-12 h-12 mx-auto mb-3 ${formData.groupType === type.value ? "text-emerald-500" : "text-gray-400"
-                    }`} />
-                  <h3 className="font-semibold text-gray-900 mb-1">{type.label}</h3>
-                  <p className="text-sm text-gray-600">{type.desc}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Hotel Preferences */}
-        {step === 3 && (
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-semibold text-gray-800 mb-4">
-                Hotel Preference
+              <label className="block text-sm font-semibold text-gray-800 mb-2">
+                Where to?
               </label>
-              <div className="space-y-3">
-                {[
-                  { value: "budget", label: "Budget", desc: "Basic amenities, great value" },
-                  { value: "standard", label: "Standard", desc: "Comfortable stay with good facilities" },
-                  { value: "luxury", label: "Luxury", desc: "Premium experience with top amenities" }
-                ].map((pref) => (
-                  <button
-                    key={pref.value}
-                    type="button"
-                    onClick={() => setFormData({ ...formData, hotelPreference: pref.value })}
-                    className={`w-full p-4 border-2 rounded-lg text-left transition-all ${formData.hotelPreference === pref.value
-                        ? "border-emerald-500 bg-emerald-50"
-                        : "border-gray-200 hover:border-emerald-300"
-                      }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Hotel className={`w-6 h-6 ${formData.hotelPreference === pref.value ? "text-emerald-500" : "text-gray-400"
-                        }`} />
-                      <div>
-                        <h3 className="font-semibold text-gray-900">{pref.label}</h3>
-                        <p className="text-sm text-gray-600">{pref.desc}</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
+              <LocationAutocomplete
+                value={formData.destination}
+                onChange={(value) => setFormData({ ...formData, destination: value })}
+                placeholder="e.g. Shillong, Tawang, Kaziranga"
+                region="northeast"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-800 mb-2">
+                Dates (Optional)
+              </label>
+              <div className="relative w-full">
+                <style>{`
+                  .react-datepicker-wrapper { width: 100%; }
+                  .react-datepicker__input-container input { width: 100%; }
+                  .custom-datepicker {
+                    font-family: inherit;
+                    border: 2px solid #e5e7eb;
+                    border-radius: 0.5rem;
+                    padding: 0.75rem 1rem 0.75rem 2.5rem;
+                    font-size: 0.875rem;
+                    color: #111827;
+                    transition: all 0.2s;
+                  }
+                  .custom-datepicker:focus {
+                    outline: none;
+                    border-color: #10b981;
+                  }
+                  .react-datepicker {
+                    font-family: inherit;
+                    border: none;
+                    border-radius: 1rem;
+                    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+                    overflow: hidden;
+                  }
+                  .react-datepicker__header {
+                    background-color: #fff;
+                    border-bottom: 1px solid #f3f4f6;
+                    padding-top: 1rem;
+                  }
+                  .react-datepicker__current-month {
+                    font-weight: 600;
+                    color: #111827;
+                    margin-bottom: 0.5rem;
+                  }
+                  .react-datepicker__day-name {
+                    color: #6b7280;
+                    font-weight: 500;
+                  }
+                  .react-datepicker__day {
+                    margin: 0.2rem;
+                    border-radius: 0.5rem;
+                    transition: all 0.2s;
+                  }
+                  .react-datepicker__day:hover {
+                    background-color: #ecfdf5;
+                    color: #059669;
+                  }
+                  .react-datepicker__day--selected, 
+                  .react-datepicker__day--in-range,
+                  .react-datepicker__day--in-selecting-range {
+                    background-color: #10b981 !important;
+                    color: white !important;
+                  }
+                  .react-datepicker__day--keyboard-selected {
+                    background-color: #d1fae5;
+                    color: #065f46;
+                  }
+                  .react-datepicker__navigation {
+                    top: 1rem;
+                  }
+                `}</style>
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
+                  <Calendar className="h-5 w-5 text-gray-400" />
+                </div>
+                <DatePicker
+                  selected={formData.startDate}
+                  onChange={handleDateChange}
+                  startDate={formData.startDate}
+                  endDate={formData.endDate}
+                  selectsRange
+                  minDate={new Date()}
+                  placeholderText="Select dates"
+                  className="custom-datepicker w-full"
+                  dateFormat="dd MMM yyyy"
+                  showPopperArrow={false}
+                />
               </div>
             </div>
 
             <div>
               <label className="block text-sm font-semibold text-gray-800 mb-2">
-                Hotel Budget Range per Night
+                Invite friends by email (Optional)
               </label>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-lg font-semibold text-emerald-600">
-                    ₹{formData.hotelBudgetMin.toLocaleString()}
-                  </span>
-                  <span className="text-gray-500">to</span>
-                  <span className="text-lg font-semibold text-emerald-600">
-                    ₹{formData.hotelBudgetMax.toLocaleString()}
-                  </span>
-                </div>
-
-                <div className="relative pt-2 pb-6">
-                  <div className="relative h-2 bg-gray-200 rounded-lg">
-                    {/* Active range highlight */}
-                    <div
-                      className="absolute h-2 bg-emerald-500 rounded-lg"
-                      style={{
-                        left: `${((formData.hotelBudgetMin - 1000) / 14000) * 100}%`,
-                        right: `${100 - ((formData.hotelBudgetMax - 1000) / 14000) * 100}%`
-                      }}
-                    />
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Mail className="h-5 w-5 text-gray-400" />
                   </div>
-
-                  {/* Min slider */}
                   <input
-                    type="range"
-                    min="1000"
-                    max="15000"
-                    step="500"
-                    value={formData.hotelBudgetMin}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value)
-                      if (val < formData.hotelBudgetMax - 500) {
-                        setFormData({ ...formData, hotelBudgetMin: val })
+                    type="email"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    placeholder="friend@example.com"
+                    className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-emerald-500 transition-colors"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddEmail();
                       }
                     }}
-                    className="absolute w-full h-2 top-2 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-emerald-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-emerald-500 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md"
-                  />
-
-                  {/* Max slider */}
-                  <input
-                    type="range"
-                    min="1000"
-                    max="15000"
-                    step="500"
-                    value={formData.hotelBudgetMax}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value)
-                      if (val > formData.hotelBudgetMin + 500) {
-                        setFormData({ ...formData, hotelBudgetMax: val })
-                      }
-                    }}
-                    className="absolute w-full h-2 top-2 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-emerald-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-emerald-500 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md"
                   />
                 </div>
-
-                <div className="flex justify-between text-xs text-gray-500">
-                  <span>₹1,000</span>
-                  <span>₹15,000</span>
-                </div>
+                <button
+                  type="button"
+                  onClick={handleAddEmail}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white p-3 rounded-lg transition-colors"
+                >
+                  <Plus className="w-6 h-6" />
+                </button>
               </div>
+
+              {formData.invitedEmails.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {formData.invitedEmails.map((email) => (
+                    <div key={email} className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-sm border border-emerald-100">
+                      <span>{email}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeEmail(email)}
+                        className="hover:text-emerald-900"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* Step 4: Login */}
-        {step === 4 && (
+        {/* Step 2: Login */}
+        {step === 2 && (
           <div className="space-y-5">
             {/* Error Message */}
             {authError && (
@@ -436,7 +426,7 @@ export default function TravelForm() {
         )}
 
         {/* Continue Button */}
-        {step < 4 && (
+        {step < 2 && (
           <button
             type="submit"
             onClick={handleNext}
