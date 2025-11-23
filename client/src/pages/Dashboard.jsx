@@ -16,11 +16,32 @@ export default function Dashboard() {
   const [explorePlaces, setExplorePlaces] = useState({ attractions: [], hotels: [], restaurants: [] })
   const [activeExploreTab, setActiveExploreTab] = useState('attractions')
   const [isAddPlaceModalOpen, setIsAddPlaceModalOpen] = useState(false)
+  const [expandedActivity, setExpandedActivity] = useState(null)
+  const [selectedPlace, setSelectedPlace] = useState(null)
   const [selectedDayIndex, setSelectedDayIndex] = useState(null)
   const [newPlace, setNewPlace] = useState('')
-  const [selectedPlace, setSelectedPlace] = useState(null)
   const autocompleteRef = useRef(null)
   const scrollRef = useRef(null)
+
+  // Helper to find an image for an activity from the explorePlaces data
+  const getActivityImage = (activityName) => {
+    const allPlaces = [
+      ...(explorePlaces.attractions || []),
+      ...(explorePlaces.hotels || []),
+      ...(explorePlaces.restaurants || [])
+    ]
+
+    // Try exact match first
+    const exactMatch = allPlaces.find(p => p.name.toLowerCase() === activityName.toLowerCase())
+    if (exactMatch?.photo) return exactMatch.photo
+
+    // Try partial match
+    const partialMatch = allPlaces.find(p =>
+      p.name.toLowerCase().includes(activityName.toLowerCase()) ||
+      activityName.toLowerCase().includes(p.name.toLowerCase())
+    )
+    return partialMatch?.photo || null
+  }
 
   useEffect(() => {
     const loadTrip = async () => {
@@ -406,35 +427,45 @@ export default function Dashboard() {
                   {/* Activities List */}
                   <div className="space-y-4">
                     {day.activities.length > 0 ? (
-                      day.activities.map((activity, actIndex) => (
-                        <div key={actIndex} className="group bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all cursor-pointer flex gap-4 items-start">
-                          <div className="w-16 h-16 bg-gray-100 rounded-lg flex-shrink-0 overflow-hidden">
-                            {/* Placeholder for activity image if available, else icon */}
-                            <div className="w-full h-full flex items-center justify-center bg-emerald-50 text-emerald-500">
-                              <MapPin className="w-6 h-6" />
+                      day.activities.map((activity, actIndex) => {
+                        const activityImage = getActivityImage(activity.location || activity.activity)
+                        return (
+                          <div
+                            key={actIndex}
+                            onClick={() => setExpandedActivity({ ...activity, image: activityImage })}
+                            className="group bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all cursor-pointer flex gap-4 items-start"
+                          >
+                            <div className="w-16 h-16 bg-gray-100 rounded-lg flex-shrink-0 overflow-hidden relative">
+                              {activityImage ? (
+                                <img src={activityImage} alt={activity.activity} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-emerald-50 text-emerald-500">
+                                  <MapPin className="w-6 h-6" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex justify-between items-start">
+                                <h4 className="font-semibold text-gray-900 truncate">{activity.activity}</h4>
+                                <button className="text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <MoreHorizontal className="w-5 h-5" />
+                                </button>
+                              </div>
+                              <p className="text-sm text-gray-500 line-clamp-2 mt-1">{activity.description}</p>
+                              <div className="flex items-center gap-3 mt-3 text-xs text-gray-500">
+                                <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">
+                                  <Clock className="w-3 h-3" />
+                                  {activity.time}
+                                </span>
+                                <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">
+                                  <DollarSign className="w-3 h-3" />
+                                  ₹{activity.cost}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex justify-between items-start">
-                              <h4 className="font-semibold text-gray-900 truncate">{activity.activity}</h4>
-                              <button className="text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <MoreHorizontal className="w-5 h-5" />
-                              </button>
-                            </div>
-                            <p className="text-sm text-gray-500 line-clamp-2 mt-1">{activity.description}</p>
-                            <div className="flex items-center gap-3 mt-3 text-xs text-gray-500">
-                              <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">
-                                <Clock className="w-3 h-3" />
-                                {activity.time}
-                              </span>
-                              <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">
-                                <DollarSign className="w-3 h-3" />
-                                ₹{activity.cost}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ))
+                        )
+                      })
                     ) : (
                       <p className="text-sm text-gray-400 italic">No activities planned yet.</p>
                     )}
@@ -523,6 +554,80 @@ export default function Dashboard() {
                   }`}
               >
                 Add to Day {selectedDayIndex + 1}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Expanded Activity Modal */}
+      {expandedActivity && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm bg-black/30">
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-200">
+            {/* Modal Header Image */}
+            <div className="h-64 relative bg-gray-100 flex-shrink-0">
+              {expandedActivity.image ? (
+                <img
+                  src={expandedActivity.image}
+                  alt={expandedActivity.activity}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-emerald-50 text-emerald-500">
+                  <MapPin className="w-16 h-16" />
+                </div>
+              )}
+              <button
+                onClick={() => setExpandedActivity(null)}
+                className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/70 text-white rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80 to-transparent">
+                <h2 className="text-2xl font-bold text-white">{expandedActivity.activity}</h2>
+                <p className="text-white/90 flex items-center gap-2 mt-1">
+                  <MapPin className="w-4 h-4" />
+                  {expandedActivity.location}
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium">
+                  <Clock className="w-4 h-4" />
+                  {expandedActivity.time}
+                </div>
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium">
+                  <Activity className="w-4 h-4" />
+                  {expandedActivity.duration}
+                </div>
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium">
+                  <DollarSign className="w-4 h-4" />
+                  ₹{expandedActivity.cost}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-2">Description</h3>
+                  <p className="text-gray-600 leading-relaxed">
+                    {expandedActivity.description}
+                  </p>
+                </div>
+
+                {/* Additional details could go here if available */}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+              <button
+                onClick={() => setExpandedActivity(null)}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg font-medium transition-colors"
+              >
+                Close
               </button>
             </div>
           </div>

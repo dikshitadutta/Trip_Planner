@@ -122,7 +122,7 @@ export async function generateAIItinerary(trip) {
     if (!ai) {
       throw new Error('Gemini API not initialized');
     }
-    const model = ai.getGenerativeModel({ model: 'gemini-pro' });
+    const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
     const result = await model.generateContent(prompt);
     const response = await result.response;
     let text = response.text();

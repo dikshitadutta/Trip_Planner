@@ -1,0 +1,6 @@
+Model Test Results:
+❌ gemini-1.5-flash: FAILED ([GoogleGenerativeAI Error]: Error fetching from ht...)
+❌ gemini-1.5-flash-001: FAILED ([GoogleGenerativeAI Error]: Error fetching from ht...)
+❌ gemini-1.5-pro: FAILED ([GoogleGenerativeAI Error]: Error fetching from ht...)
+❌ gemini-pro: FAILED ([GoogleGenerativeAI Error]: Error fetching from ht...)
+❌ gemini-1.0-pro: FAILED ([GoogleGenerativeAI Error]: Error fetching from ht...)
