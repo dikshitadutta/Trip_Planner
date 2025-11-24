@@ -8,9 +8,9 @@ export default function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
           {/* Brand */}
           <div>
-            <h3 className="text-2xl font-bold text-white mb-4">Seven Sisters Journies</h3>
+            <h3 className="text-2xl font-bold text-white mb-4">TripCraft</h3>
             <p className="text-sm text-gray-400">
-              Your gateway to discovering the untouched beauty of North East India
+              Your gateway to discovering amazing destinations worldwide
             </p>
             <div className="flex gap-4 mt-4">
               <Facebook className="w-5 h-5 hover:text-emerald-500 cursor-pointer transition-colors" />
@@ -83,7 +83,7 @@ export default function Footer() {
         </div>
 
         <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center text-sm">
-          <p>&copy; 2025 Seven Sisters Journies. All rights reserved.</p>
+          <p>&copy; 2025 TripCraft. All rights reserved.</p>
           <div className="flex gap-6 mt-4 md:mt-0">
             <a href="#" className="hover:text-emerald-500 transition-colors">
               Privacy Policy

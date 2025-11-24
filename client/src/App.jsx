@@ -7,6 +7,7 @@ import HowItWorks from "./components/HowItWorks"
 import Destinations from "./components/Destinations"
 import CTA from "./components/CTA"
 import Footer from "./components/Footer"
+import TravelAssistant from "./components/TravelAssistant"
 import Dashboard from "./pages/Dashboard"
 import AuthSuccess from "./pages/AuthSuccess"
 
@@ -23,6 +24,7 @@ function HomePage() {
         <CTA />
         <Footer />
       </main>
+      <TravelAssistant />
     </>
   )
 }

@@ -11,7 +11,7 @@ export default function Navbar() {
   const [isHovered, setIsHovered] = useState(false)
   const dropdownRef = useRef(null)
 
-  const API_URL = "http://localhost:3001"
+  const API_URL = "http://localhost:3000"
 
   // Check if user is logged in on mount
   useEffect(() => {
@@ -85,7 +85,7 @@ export default function Navbar() {
         <div className="flex items-center justify-between gap-6">
           {/* Logo */}
           <div className="flex-shrink-0">
-            <h1 className="text-2xl font-bold text-white drop-shadow-lg">Seven Sisters</h1>
+            <h1 className="text-2xl font-bold text-white drop-shadow-lg">TripCraft</h1>
           </div>
 
           {/* Search Bar */}

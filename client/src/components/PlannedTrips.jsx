@@ -23,7 +23,7 @@ export default function PlannedTrips() {
 
     const fetchTrips = async (userId) => {
         try {
-            const response = await fetch(`http://localhost:3001/api/trips/user/${userId}`)
+            const response = await fetch(`http://localhost:3000/api/trips/user/${userId}`)
             const data = await response.json()
             if (data.success) {
                 setTrips(data.trips)
@@ -57,7 +57,7 @@ export default function PlannedTrips() {
                             Your Upcoming <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-500">Adventures</span>
                         </h2>
                         <p className="text-gray-600 text-lg leading-relaxed">
-                            The mountains are calling. Here are the trips you've planned to the mesmerizing Seven Sisters.
+                            Adventure awaits. Here are the trips you've planned to explore the world.
                         </p>
                     </div>
                     <button
@@ -116,10 +116,6 @@ export default function PlannedTrips() {
                             {/* Content Section */}
                             <div className="p-6">
                                 <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mb-1">Estimated Budget</p>
-                                        <p className="text-xl font-bold text-gray-900">₹{trip.budget?.total?.toLocaleString()}</p>
-                                    </div>
                                     <div className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-400 group-hover:border-emerald-500 group-hover:bg-emerald-500 group-hover:text-white transition-all duration-300">
                                         <ArrowRight className="w-5 h-5" />
                                     </div>

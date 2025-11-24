@@ -35,7 +35,7 @@ export default function TravelForm() {
     libraries,
   })
 
-  const API_URL = "http://localhost:3001"
+  const API_URL = "http://localhost:3000"
 
   const createTrip = useCallback(async (userData, tripFormData) => {
     setIsCreatingTrip(true)
@@ -73,7 +73,7 @@ export default function TravelForm() {
         setAuthError(tripData.message || "Failed to generate itinerary")
       }
     } catch (error) {
-      setAuthError("Network error. Please try again.")
+      setAuthError("Unable to connect to server. Please make sure the server is running on port 3000.")
       console.error("Trip creation error:", error)
     } finally {
       setIsCreatingTrip(false)
@@ -149,8 +149,8 @@ export default function TravelForm() {
 
     // Validate step 1
     if (step === 1) {
-      if (!formData.destination || !formData.startDate || !formData.endDate) {
-        setAuthError("Please fill in all required fields")
+      if (!formData.destination) {
+        setAuthError("Please enter a destination")
         return
       }
       setAuthError("")

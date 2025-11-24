@@ -6,7 +6,7 @@ export default function CTA() {
     <section className="py-20 bg-gradient-to-r from-emerald-600 to-teal-600">
       <div className="container mx-auto px-4 text-center">
         <h2 className="text-4xl lg:text-5xl font-bold text-white mb-6 text-pretty">
-          Ready to Explore the Seven Sisters?
+          Ready to Start Your Journey?
         </h2>
         <p className="text-lg text-emerald-50 mb-8 max-w-2xl mx-auto">
           Start planning your unforgettable North East India adventure today. Get personalized recommendations and

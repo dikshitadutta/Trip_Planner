@@ -317,6 +317,29 @@ app.put('/api/trips/:tripId', async (req, res) => {
   }
 });
 
+// Travel Assistant Chat
+app.post('/api/chat/assistant', async (req, res) => {
+  try {
+    const { message } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ success: false, message: 'Message is required' });
+    }
+
+    const { getTravelAssistantResponse } = await import('./services/travelAssistant.js');
+    const response = await getTravelAssistantResponse(message);
+
+    res.json({ success: true, response });
+  } catch (error) {
+    console.error('Chat assistant error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get response',
+      response: 'Sorry, I encountered an error. Please try again.'
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

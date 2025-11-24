@@ -56,7 +56,7 @@ export default function Dashboard() {
 
       try {
         // Load trip first
-        const tripRes = await fetch(`http://localhost:3001/api/trips/${tripId}`)
+        const tripRes = await fetch(`http://localhost:3000/api/trips/${tripId}`)
         const tripData = await tripRes.json()
 
         if (tripData.success) {
@@ -64,7 +64,7 @@ export default function Dashboard() {
 
           // Then try to load explore places (don't block if fails)
           try {
-            const exploreRes = await fetch(`http://localhost:3001/api/trips/${tripId}/explore`)
+            const exploreRes = await fetch(`http://localhost:3000/api/trips/${tripId}/explore`)
             const exploreData = await exploreRes.json()
             if (exploreData.success && exploreData.places) {
               setExplorePlaces(exploreData.places)
@@ -86,7 +86,7 @@ export default function Dashboard() {
   const handleRegenerate = async () => {
     setRegenerating(true)
     try {
-      const response = await fetch(`http://localhost:3001/api/trips/${trip._id}/generate`, {
+      const response = await fetch(`http://localhost:3000/api/trips/${trip._id}/generate`, {
         method: 'POST'
       })
       const data = await response.json()
